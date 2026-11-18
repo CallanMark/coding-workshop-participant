@@ -156,3 +156,27 @@ def test_never_drops_when_seeding_is_off(monkeypatch):
     conn = LeftoverConn(tables={"users", "incidents"})
     assert db.drop_empty_leftover_tables(conn) is False
     assert conn.statements == []
+
+
+class StaleConn:
+    """A cached connection that Aurora has already closed: psycopg only finds out on the next query."""
+
+    closed = broken = False
+
+    def execute(self, sql, params=None):
+        raise OperationalError("terminating connection due to administrator command")
+
+
+def test_idle_stale_connection_is_replaced(monkeypatch):
+    monkeypatch.setattr(db, "_conn", StaleConn())
+    monkeypatch.setattr(db, "_last_used", db.time.monotonic() - db.IDLE_CHECK_AFTER - 1)
+    monkeypatch.setattr(db, "connect", lambda *a, **k: "fresh connection")
+    assert db.get_conn() == "fresh connection"
+
+
+def test_recently_used_connection_is_not_rechecked(monkeypatch):
+    conn = StaleConn()
+    monkeypatch.setattr(db, "_conn", conn)
+    monkeypatch.setattr(db, "_last_used", db.time.monotonic())
+    monkeypatch.setattr(db, "connect", lambda *a, **k: "fresh connection")
+    assert db.get_conn() is conn  # no SELECT 1 on every call within a request

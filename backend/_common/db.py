@@ -32,13 +32,29 @@ SEED_FILE = Path(__file__).with_name("seed.sql")
 CONNECT_RETRY_DELAY = 2  # seconds; Aurora Serverless can refuse the first connection while it resumes
 SCHEMA_LOCK_ID = 7_001  # any constant; serialises schema creation across concurrent cold starts
 
+IDLE_CHECK_AFTER = 30  # seconds idle before a cached connection is checked with SELECT 1
+
 _conn: Connection | None = None
+_last_used = 0.0
 _schema_ready = False
 
 
 def get_conn() -> Connection:
-    """Return the container's autocommit connection (rows as dicts), reconnecting if it dropped."""
-    global _conn
+    """
+    Return the container's autocommit connection (rows as dicts), reconnecting if it dropped.
+    A Lambda container keeps its connection between requests, but Aurora closes connections when it
+    pauses or scales. psycopg only notices on the next query, so a connection idle for a while is
+    checked first; otherwise the first request after every pause would fail with a 500.
+    """
+    global _conn, _last_used
+    now = time.monotonic()
+    if _conn is not None and not (_conn.closed or _conn.broken) and now - _last_used > IDLE_CHECK_AFTER:
+        try:
+            _conn.execute("SELECT 1")
+        except OperationalError:
+            logger.warning("Database connection went stale while idle; reconnecting")
+            _conn = None
+    _last_used = now
     if _conn is None or _conn.closed or _conn.broken:
         try:
             _conn = connect(PG_CONFIG, autocommit=True, row_factory=dict_row)
