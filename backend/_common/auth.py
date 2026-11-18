@@ -12,6 +12,9 @@ import jwt
 
 from common.errors import Forbidden, Unauthorized
 
+# Every role a user can have (matches the users.role CHECK in schema.sql).
+ROLES = ("employee", "engineer", "manager", "admin")
+
 TOKEN_TTL = timedelta(hours=8)
 JWT_ALGORITHM = "HS256"
 

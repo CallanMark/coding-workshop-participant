@@ -17,3 +17,14 @@ export const AuthContext = createContext(null);
 export function useAuth() {
   return useContext(AuthContext);
 }
+
+/**
+ * True if the user has one of the roles. For showing or hiding UI only:
+ * the backend enforces access on every request.
+ * @param {{role: string} | null} user
+ * @param {...string} roles - e.g. 'admin', 'manager'.
+ * @returns {boolean}
+ */
+export function hasRole(user, ...roles) {
+  return Boolean(user) && roles.includes(user.role);
+}
