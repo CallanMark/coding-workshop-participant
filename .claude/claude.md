@@ -26,7 +26,7 @@ A **facility incident management platform** for ACME Inc., built for the Citi Co
 |---|---|
 | `employee` | Register with an `@acme.inc` email; create incidents; see and track **their own** incidents; add notes to their **open** incidents; request escalation or a priority change |
 | `engineer` | See incidents **assigned to them**; update status; add notes to communicate with the reporter |
-| `facility_admin` | Manage buildings, floors and seats; create engineer profiles; assign and reassign tickets; see and manage **every** ticket through its lifecycle; handle escalation requests |
+| `admin` | Facility admin. Manage buildings, floors, seats and categories; create engineer users (with a team); assign and reassign tickets; see and manage **every** ticket through its lifecycle; handle escalation requests |
 
 **MVP:**
 
@@ -54,7 +54,7 @@ A **facility incident management platform** for ACME Inc., built for the Citi Co
 - "Acknowledged" = the first time an incident leaves `open` or gets an engineer note, whichever is first.
 - `blocked` and escalation both require a reason.
 - Employees cannot delete incidents; they can close their own if no longer needed. Admins can delete.
-- Engineer availability is a flag on the engineer profile (`is_available`), plus their count of active tickets.
+- Engineer availability is the `is_available` flag on the engineer's `users` row, plus their count of active tickets.
 
 ## How this is assessed
 
@@ -85,19 +85,21 @@ One shared database. Each table is **owned (written) by one service**; others ma
 
 | Table | Key columns | Owner |
 |---|---|---|
-| `users` | id, email (unique, must end `@acme.inc`), password_hash, full_name, role (`employee`, `engineer`, `facility_admin`) | auth |
-| `buildings` | id, name (unique), address | facilities |
-| `floors` | id, building_id → buildings (CASCADE), name; unique (building_id, name) | facilities |
-| `seats` | id, floor_id → floors (CASCADE), code; unique (floor_id, code) | facilities |
-| `engineer_profiles` | id, user_id → users (unique), specialties (TEXT[] of categories), is_available | engineers |
-| `incidents` | id, title, description, category, priority (`low`, `medium`, `high`, `critical`), status, reporter_id → users, assignee_id → engineer_profiles (SET NULL), building_id, floor_id, seat_id (SET NULL), is_escalated, escalation_reason, blocked_reason, created_at, acknowledged_at, assigned_at, resolved_at, closed_at, updated_at | incidents |
+| `teams` | id, name (unique) | engineers |
+| `users` | id, email (unique, must end `@acme.inc`), password_hash, name, role (`employee`, `engineer`, `admin`), team_id → teams (engineers only), is_available (engineers only, default true), created_at | auth (engineer rows: engineers) |
+| `buildings` | id, name | facilities |
+| `floors` | id, building_id → buildings, name | facilities |
+| `seats` | id, floor_id → floors, code | facilities |
+| `categories` | id, name, type (`facility`, `technology`) | facilities |
+| `incidents` | id, title, description, category_id → categories, building_id → buildings (required), floor_id → floors, seat_id → seats, reporter_id → users (required), assignee_id → users (an engineer), status (default `open`), priority (`low`, `medium`, `high`, `critical`; default `medium`), is_escalated, blocked_reason, escalation_reason, created_at, acknowledged_at, assigned_at, resolved_at, closed_at | incidents |
 | `incident_notes` | id, incident_id → incidents (CASCADE), author_id → users, body, created_at | incidents |
-| `incident_events` | id, incident_id (CASCADE), actor_id, event_type (`created`, `status_changed`, `assigned`, `escalated`, `priority_changed`), from_value, to_value, reason, created_at | incidents |
 
-- Categories are a fixed `CHECK` list (e.g. `hvac`, `electrical`, `plumbing`, `cleaning`, `furniture`, `it_hardware`, `network`, `av_equipment`, `access_security`, `other`).
-- **`incident_events`** is the audit trail. It powers the workflow timeline, the escalation and blocked reasons, and the timing metrics. Write an event on every status, assignment, priority or escalation change, **in the same transaction** as the change.
+- There is **no separate engineer profile table**: an engineer is a `users` row with `role = 'engineer'`, a `team_id` and `is_available`.
+- Categories are rows in `categories` (not a `CHECK` list), so admins can add them.
+- There is **no audit/events table**. The workflow timeline and timing metrics come from the incident timestamps plus `incident_notes`; the current `blocked_reason` / `escalation_reason` live on the incident.
 - Timestamps (`acknowledged_at`, `assigned_at`, `resolved_at`, `closed_at`) are set by the backend when the transition happens, never by the client.
 - Schema lives in `backend/_common/schema.sql` as `CREATE TABLE IF NOT EXISTS` in dependency order. Changes are **appended** as `ALTER TABLE ... IF NOT EXISTS`. Never edit an existing `CREATE TABLE`.
+- Mock data lives in `backend/_common/seed.sql` (fixed ids, `ON CONFLICT DO NOTHING`, sequences reset afterwards), so it is safe to re-run. When the schema changes, update the seed too.
 
 ## Incident workflow
 
@@ -121,7 +123,7 @@ open ──► in_progress ──► resolved ──► closed
 
 - Allowed transitions live in **one place**: a `TRANSITIONS` dict in the incidents service. Invalid transitions return **409** with a clear message.
 - Assignment (admin only) sets `assigned_at`. Unassigned incidents stay `open`.
-- Escalation: the reporter can request it (`is_escalated = true` + reason); an admin can raise priority or clear escalation. Both write an event.
+- Escalation: the reporter can request it (`is_escalated = true` + reason); an admin can raise priority or clear escalation. Both update the incident row (no event table).
 - Notes can be added while status is not `closed`.
 
 ## Services and API
@@ -132,15 +134,15 @@ All routes are prefixed `/api/<service>`. RESTful, JSON in and out.
 |---|---|---|
 | `auth` | `POST /register` (employees only, `@acme.inc` email), `POST /login`, `GET /me` | public; signed in |
 | `facilities` | CRUD `/buildings`, `/floors?building_id=`, `/seats?floor_id=` | read: all; write: admin |
-| `engineers` | CRUD `/engineers` (creates the user with role `engineer` + profile), `?available=true` | read: admin (engineers see own); write: admin |
-| `incidents` | `GET /incidents?status=&priority=&category=&building_id=&assignee_id=&q=&mine=true`, `POST`, `GET /{id}`, `PUT /{id}` (details), `DELETE /{id}` (admin); `POST /{id}/status`, `POST /{id}/assign`, `POST /{id}/escalate`, `GET POST /{id}/notes`, `GET /{id}/events` | scoped per role (below) |
+| `engineers` | CRUD `/engineers` (creates a `users` row with role `engineer`, `team_id`, `is_available`), `/teams`, `?available=true` | read: admin (engineers see own); write: admin |
+| `incidents` | `GET /incidents?status=&priority=&category_id=&building_id=&assignee_id=&q=&mine=true`, `POST`, `GET /{id}`, `PUT /{id}` (details), `DELETE /{id}` (admin); `POST /{id}/status`, `POST /{id}/assign`, `POST /{id}/escalate`, `GET POST /{id}/notes` | scoped per role (below) |
 | `reports` | `GET /summary` (counts by status, priority, category, assignee), `GET /hotspots` (by building, floor, seat), `GET /timings` (avg acknowledge, assign and resolve times), `GET /workload` (per engineer) | admin; engineers and employees get their own scoped summary |
 
 **Row-level scoping** (enforced in SQL `WHERE`, not just in the UI):
 
 - `employee`: incidents where `reporter_id = me`.
 - `engineer`: incidents where `assignee_id = my profile`.
-- `facility_admin`: all incidents.
+- `admin`: all incidents.
 
 Requesting an incident outside your scope returns **404** (do not reveal it exists).
 
@@ -148,14 +150,18 @@ Requesting an incident outside your scope returns **404** (do not reveal it exis
 
 ### Backend
 
-- **Layers per service:** `function.py` (handler and routing only) → `service.py` (rules, validation, permissions) → `repository.py` (SQL only). For a very small service, separate functions in one file are fine.
-- **Shared code** in `backend/_common/` (db, errors, http, auth, validation, schema.sql), copied into each service by `scripts/sync-common.sh` before running or deploying. Never edit the generated `common/` copies.
-- **Errors:** raise `ApiError` subclasses (`BadRequest` 400, `Unauthorized` 401, `Forbidden` 403, `NotFound` 404, `Conflict` 409). Only `handle()` in `_common/http.py` turns them into responses. Body is always `{"error": {"message": str, "details": {field: message}}}`.
+- **Layers per service** (`backend/incidents/` is the reference; copy it for new services):
+  - `function.py`: Lambda entry only: `handle(event, "<service>", ROUTES)`.
+  - `routes.py`: `ROUTES = [Route(method, path, service.fn, status=...)]`, with a comment above each route saying who may call it. `{id}` in a path matches an integer and arrives as `req.params["id"]`.
+  - `service.py`: validation, rules and permissions. Takes a `Request`, returns data, raises `ApiError`s. No SQL, no HTTP.
+  - `repository.py`: SQL only. No rules. Multi-step writes are wrapped by the service in `with transaction():`.
+- **Shared code** in `backend/_common/` (`db.py`: `get_conn()`, `transaction()`, `ensure_schema()`; `errors.py`; `http.py`: `Request`, `Route`, `handle()`; `schema.sql`; later `auth.py`), copied into each service as `common/` by `bin/sync-common.sh` (run by start-dev and deploy-backend; re-run after editing `_common`). The copies are gitignored; never edit them.
+- **Errors:** raise `ApiError` subclasses (`BadRequest` 400, `Unauthorized` 401, `Forbidden` 403, `NotFound` 404, `Conflict` 409, `NotImplementedYet` 501 for stubs). Only `handle()` in `_common/http.py` turns them into responses. Body is always `{"error": {"message": str, "details": {field: message}}}`.
 - **Status codes:** 200 read/update, 201 create, 204 delete, 400 validation, 401 not signed in, 403 wrong role, 404 not found/out of scope, 409 duplicate or invalid transition, 500 unexpected (logged, never exposed).
-- **SQL:** always `%s` / `%(name)s` parameters, never f-strings. Use `RETURNING` on writes (0 rows → 404). Multi-step writes (status change + event) go in `with get_conn().transaction():`. Use `LEFT JOIN` for optional relations and `count(col)` after a LEFT JOIN.
+- **SQL:** always `%s` / `%(name)s` parameters, never f-strings. Use `RETURNING` on writes (0 rows → 404). Multi-step writes (e.g. status change + note) go in `with get_conn().transaction():`. Use `LEFT JOIN` for optional relations and `count(col)` after a LEFT JOIN.
 - **Validation:** required fields, enum values, `@acme.inc` email, that referenced building/floor/seat/engineer exist **and belong together** (seat is on that floor, floor in that building). Return field-level 400s.
 - **Auth first, then permission:** every route except register and login calls `require_user(req)` (401), then a role or ownership check (403/404). Centralise role checks in `_common/auth.py`.
-- **Paths:** locally the Lambda sees `/12`; behind CloudFront it sees `/api/incidents/12`. `parse_request()` strips `api` and the service name; route on `req["parts"]`.
+- **Paths:** locally the Lambda sees `/12`; behind CloudFront it sees `/api/incidents/12`. `parse_request()` strips `api` and the service name, so route paths in `routes.py` are relative (`/{id}/status`).
 
 ### Frontend
 
@@ -164,7 +170,7 @@ Requesting an incident outside your scope returns **404** (do not reveal it exis
 - Every data view handles **loading, error (with retry), empty and data**.
 - Forms: required fields marked, validate before submit, server `details[field]` shown under the field, disabled while saving.
 - Show and hide actions by role using `can(...)` from `AuthContext`. The backend is the real enforcement.
-- Workflow visual: MUI `Stepper` for the main path plus a timeline of `incident_events`, with `blocked` and escalation highlighted.
+- Workflow visual: MUI `Stepper` for the main path plus a timeline built from the incident timestamps and notes, with `blocked` and escalation highlighted.
 - Status and priority shown as consistently coloured MUI `Chip`s (one mapping in `src/constants.js`).
 - Responsive: `react-responsive` / MUI breakpoints; cards on phones, tables on desktop.
 - One MUI theme in `theme.js`; labelled inputs; keyboard-accessible dialogs.
@@ -182,9 +188,11 @@ Requesting an incident outside your scope returns **404** (do not reveal it exis
 ## Commands
 
 ```bash
-./scripts/sync-common.sh            # copy _common into each service (before start-dev and deploys)
+./bin/sync-common.sh                # copy _common into each service (start-dev and deploy-backend run it)
+./bin/init-db.sh                    # apply schema + seed mock data locally (idempotent; also run by start-dev)
+./bin/init-db.sh --reset            # drop app tables, then recreate and reseed
 ./bin/start-dev.sh                  # Postgres, LocalStack, Lambdas, proxy :3001, Vite :3000
-cp -R backend/_examples/python-service backend/<service>   # new service, then restart start-dev
+mkdir backend/<service> && cp backend/incidents/{function,routes,service,repository}.py backend/incidents/requirements.txt backend/<service>/   # new service: then rename and strip, and restart start-dev
 cd backend && pytest --cov          # backend tests (target ≥ 80%)
 cd frontend && npx vitest run       # frontend tests
 cd frontend && npm run lint
@@ -197,18 +205,27 @@ AWS_ENDPOINT_URL="http://localhost.localstack.cloud:4566" aws logs tail /aws/lam
 
 Local Lambda DB settings (injected): host `172.17.0.1`, port 5432, db/user `postgres`, password `postgres123`. In the cloud use `sslmode=require` when `IS_LOCAL` is `false`.
 
+## CI/CD
+
+- `.github/workflows/ci.yml` (PRs and feature-branch pushes): ruff (`ruff.toml`), compile, pytest once `backend/<service>/tests` exist, schema + seed applied twice against Postgres 16, frontend lint/test/build, `terraform fmt -check` + `validate`, `bash -n` on `bin/*.sh`.
+- `.github/workflows/deploy.yml` (push to `main`, or manual): runs CI, then `deploy-backend.sh aws`, `deploy-frontend.sh aws`, and a smoke test (`GET /` and `GET /api/incidents`). One deploy at a time.
+- Needs repo secrets `PARTICIPANT_ID`, `PARTICIPANT_CODE` (optional `PARTICIPANT_URL`) and repo variable `EVENT_ID`.
+- Keep CI green locally before pushing: `ruff check backend`, `cd frontend && npm run lint && npm run build`, `terraform fmt -check -recursive infra`.
+
 ## Known repo gotchas
 
 1. `bin/proxy-server.js` drops the `Authorization` header. Add `...(headers.authorization && { authorization: headers.authorization }),` to the forwarded headers.
 2. No JWT secret is injected. Add a `random_password` resource in `infra/main.tf` and `JWT_SECRET = random_password.jwt.result` to `env_vars` in `infra/locals.tf`.
-3. Each Lambda ships only its own folder: run `scripts/sync-common.sh` first, or `import common` fails.
-4. `frontend/.env.sample` uses `REACT_APP_`; Vite needs `VITE_API_URL`.
+3. Each Lambda ships only its own folder: run `bin/sync-common.sh` first, or `import common` fails.
+4. `frontend/.env.sample` uses `REACT_APP_`; Vite needs `VITE_API_URL`. (Fixed.)
 5. The cloud DB is only reachable from the Lambdas: tables are created by code on cold start (`ensure_schema()`), and seed data runs through a script or admin-only endpoint, never automatically.
+6. Lambda deps are pip-installed into each service folder for hot reload. They must be wheels for the **Lambda runtime (python3.13, x86_64)**, not the host Python, or the import fails (`cannot import name 'pq' from psycopg_binary`). `start-dev.sh` passes `--python-version 3.13 --platform manylinux2014_x86_64 --only-binary=:all:`; use the same flags if installing by hand.
+7. **Temporary identity until auth:** the frontend has an "Acting as" picker (`src/context/currentUser.js`, mirrors seed users); the incidents API takes `?user_id=` on list, `reporter_id` on create and `actor_id` on status changes. All are marked `TODO(auth)`; replace them with the JWT user when auth lands.
 
 ## Testing
 
 - Each endpoint: success, 400 (field names), 401, 403/404 for wrong role or out of scope, 404 not found, 409 (duplicates and **invalid status transitions**).
-- The workflow: test every allowed transition and at least one forbidden transition per status; test that each change writes an `incident_events` row and sets its timestamp.
+- The workflow: test every allowed transition and at least one forbidden transition per status; test that each change sets its timestamp (and reason where required).
 - Reports: seed known data and assert exact counts and averages.
 - Frontend: incident form validation, role-based button visibility, status change, error and empty states. Mock `src/api/*`.
 - Targets: 80%+ coverage backend and frontend; critical paths (register → create incident → assign → resolve → close) covered end to end.

@@ -1,0 +1,98 @@
+name: Deploy
+
+# Every push to main: run CI, then deploy backend + frontend to AWS, then smoke test.
+# Can also be started by hand from the Actions tab.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   PARTICIPANT_ID     your workshop participant id
+#   PARTICIPANT_CODE   your workshop participant code
+#   PARTICIPANT_URL    optional; only needed if the lookup by EVENT_ID fails
+# Repository variable:
+#   EVENT_ID           workshop event id used to look up the credentials URL
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push waits instead of fighting over Terraform state.
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy to AWS
+    needs: ci
+    runs-on: ubuntu-latest
+    environment:
+      name: aws
+      url: ${{ steps.urls.outputs.website_url }}
+    env:
+      PARTICIPANT_ID: ${{ secrets.PARTICIPANT_ID }}
+      PARTICIPANT_CODE: ${{ secrets.PARTICIPANT_CODE }}
+      PARTICIPANT_URL: ${{ secrets.PARTICIPANT_URL }}
+      EVENT_ID: ${{ vars.EVENT_ID }}
+      AWS_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets are set
+        run: |
+          if [ -z "$PARTICIPANT_ID" ] || [ -z "$PARTICIPANT_CODE" ]; then
+            echo "::error::Set the PARTICIPANT_ID and PARTICIPANT_CODE repository secrets"
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'   # Terraform's Lambda module pip-installs requirements with the runtime's Python
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false   # the scripts read `terraform output -raw`; the wrapper adds noise
+
+      - name: Deploy backend (Lambdas, database, API)
+        run: ./bin/deploy-backend.sh aws
+
+      - name: Install frontend dependencies
+        run: npm install --prefix frontend
+
+      - name: Deploy frontend (build, S3, CloudFront)
+        run: ./bin/deploy-frontend.sh aws
+
+      - name: Read deployed URLs
+        id: urls
+        working-directory: infra
+        run: |
+          website_url=$(terraform output -raw website_url)
+          api_base_url=$(terraform output -raw api_base_url 2>/dev/null || true)
+          echo "website_url=$website_url" >> "$GITHUB_OUTPUT"
+          echo "api_base_url=${api_base_url:-$website_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test
+        env:
+          WEBSITE_URL: ${{ steps.urls.outputs.website_url }}
+          API_URL: ${{ steps.urls.outputs.api_base_url }}
+        run: |
+          retry="--retry 5 --retry-delay 15 --retry-all-errors --max-time 60"
+          curl -fsS $retry -o /dev/null "$WEBSITE_URL"
+          echo "✓ frontend responds"
+          # First call can be slow: Lambda cold start + ensure_schema() on the database
+          count=$(curl -fsS $retry "${API_URL%/}/api/incidents" | jq length)
+          echo "✓ GET /api/incidents returned $count incidents"
+          {
+            echo "### Deployed"
+            echo "- Website: $WEBSITE_URL"
+            echo "- API: ${API_URL%/}/api/incidents ($count incidents)"
+          } >> "$GITHUB_STEP_SUMMARY"

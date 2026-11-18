@@ -113,6 +113,9 @@ if [ "$PG_OK" = false ]; then
     done
 fi
 
+# Ensure the app schema exists and mock data is loaded (both idempotent)
+"$SCRIPT_DIR/init-db.sh" || { echo -e "  ✗ Database initialisation failed"; exit 1; }
+
 echo ""
 
 # ============================================================
@@ -327,6 +330,9 @@ else
     echo -e "  Detected Mac/Windows - using host: host.docker.internal"
 fi
 
+# Copy shared backend code (backend/_common) into each Python service
+"$SCRIPT_DIR/sync-common.sh"
+
 # Install pip requirements into each Python service directory for hot-reload
 # Skip if requirements.txt hasn't changed since last install (avoids slow PyPI lookups)
 shopt -s nullglob
@@ -339,7 +345,10 @@ for req in "$PROJECT_ROOT"/backend/*/requirements.txt; do
         continue
     fi
     echo -e "  Installing pip requirements for $(basename "$svc_dir")..."
-    pip install --quiet --target="$svc_dir" -r "$req" 2>/dev/null || true
+    # Install wheels for the Lambda runtime (python3.13, x86_64), not the host's Python
+    pip install --quiet --upgrade --target="$svc_dir" \
+        --python-version 3.13 --platform manylinux2014_x86_64 --only-binary=:all: \
+        -r "$req" || { echo -e "  ✗ pip install failed for $(basename "$svc_dir")"; exit 1; }
     echo "$REQS_HASH" > "$HASH_FILE"
 done
 
