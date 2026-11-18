@@ -110,3 +110,49 @@ def test_first_connection_failure_is_retried_once(monkeypatch):
 
     assert db.get_conn() == "connection"
     assert len(calls) == 2
+
+
+class LeftoverConn:
+    """Answers the leftover-table checks: which tables exist and whether they have rows."""
+
+    def __init__(self, tables=(), users=0, incidents=0):
+        self.tables, self.users, self.incidents = set(tables), users, incidents
+        self.statements = []
+
+    def execute(self, sql, params=None):
+        self.statements.append(sql)
+        if "to_regclass" in sql:
+            return FakeResult([{"users": "users" in self.tables, "incidents": "incidents" in self.tables}])
+        if "FROM users" in sql:
+            return FakeResult([{"any": self.users > 0}])
+        if "FROM incidents" in sql:
+            return FakeResult([{"any": self.incidents > 0}])
+        return FakeResult([])
+
+    @property
+    def dropped(self):
+        return any(s.startswith("DROP TABLE") for s in self.statements)
+
+
+def test_drops_empty_tables_left_by_an_older_deploy(cloud):
+    conn = LeftoverConn(tables={"users", "incidents"})
+    assert db.drop_empty_leftover_tables(conn) is True
+    assert conn.dropped
+    assert "incident_events" in conn.statements[-1] and "teams" in conn.statements[-1]
+
+
+@pytest.mark.parametrize("conn", [
+    LeftoverConn(tables=set()),                                # fresh database
+    LeftoverConn(tables={"users", "incidents"}, users=1),      # has a user
+    LeftoverConn(tables={"users", "incidents"}, incidents=1),  # has an incident
+])
+def test_never_drops_fresh_or_used_databases(cloud, conn):
+    assert db.drop_empty_leftover_tables(conn) is False
+    assert not conn.dropped
+
+
+def test_never_drops_when_seeding_is_off(monkeypatch):
+    monkeypatch.delenv("SEED_ON_EMPTY", raising=False)
+    conn = LeftoverConn(tables={"users", "incidents"})
+    assert db.drop_empty_leftover_tables(conn) is False
+    assert conn.statements == []

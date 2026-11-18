@@ -127,14 +127,20 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # When anything above fails, print recent Lambda logs (stack traces) so the cause is in the job log.
-      # The API itself only ever returns a generic 500 message.
       - name: Lambda logs (on failure)
         if: failure()
         run: |
-          functions=$(aws lambda list-functions --output text \
-            --query "Functions[?starts_with(FunctionName, 'coding-workshop-')].FunctionName" || true)
-          for fn in $functions; do
-            echo "::group::$fn (last 30 minutes)"
-            aws logs tail "/aws/lambda/$fn" --since 30m --format short 2>&1 | tail -n 100 || true
+          # The workshop role may not list functions, only touch its own resources, so build the
+          # names: coding-workshop-<service>-<participant id> (see infra/lambda.tf, locals.tf app_id).
+          groups=()
+          for req in backend/*/requirements.txt; do
+            svc=$(basename "$(dirname "$req")")
+            case "$svc" in _*|.*) continue ;; esac
+            groups+=("/aws/lambda/coding-workshop-$svc-$PARTICIPANT_ID")
+          done
+          groups+=("/aws/rds/cluster/coding-workshop-rds-$PARTICIPANT_ID/postgresql")   # Aurora's own log
+          for group in "${groups[@]}"; do
+            echo "::group::$group (last 30 minutes)"
+            aws logs tail "$group" --since 30m --format short 2>&1 | tail -n 100 || true
             echo "::endgroup::"
           done

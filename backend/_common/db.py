@@ -65,9 +65,38 @@ def ensure_schema() -> None:
     conn = get_conn()
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (SCHEMA_LOCK_ID,))
+        drop_empty_leftover_tables(conn)
         conn.execute(SCHEMA_FILE.read_text())
         seed_if_empty(conn)
     _schema_ready = True
+
+
+# Every table in schema.sql, children first (same list as bin/init-db.sh --reset).
+APP_TABLES = ("incident_events", "incident_notes", "incidents", "seats", "floors",
+              "buildings", "users", "categories", "teams")
+
+
+def drop_empty_leftover_tables(conn: Connection) -> bool:
+    """
+    Drop the app's tables when they exist but hold no users and no incidents. Returns True if dropped.
+    schema.sql uses CREATE TABLE IF NOT EXISTS, so tables left by an older, never-seeded deploy keep
+    their old columns and the new schema fails on them. With no users nobody could have entered data,
+    so rebuilding is safe. Only when SEED_ON_EMPTY=true (the deployed app); never with any users.
+    """
+    if os.getenv("SEED_ON_EMPTY", "false") != "true":
+        return False
+    found = conn.execute(
+        "SELECT to_regclass('users') IS NOT NULL AS users, to_regclass('incidents') IS NOT NULL AS incidents"
+    ).fetchone()
+    if not found["users"]:
+        return False  # fresh database: nothing to drop
+    if conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS any").fetchone()["any"]:
+        return False
+    if found["incidents"] and conn.execute("SELECT EXISTS (SELECT 1 FROM incidents) AS any").fetchone()["any"]:
+        return False
+    conn.execute(f"DROP TABLE IF EXISTS {', '.join(APP_TABLES)} CASCADE")
+    logger.warning("Dropped empty leftover tables so the current schema can be created")
+    return True
 
 
 def seed_if_empty(conn: Connection) -> bool:
