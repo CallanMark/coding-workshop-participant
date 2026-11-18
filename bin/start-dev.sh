@@ -330,6 +330,9 @@ else
     echo -e "  Detected Mac/Windows - using host: host.docker.internal"
 fi
 
+# Copy shared backend code (backend/_common) into each Python service
+"$SCRIPT_DIR/sync-common.sh"
+
 # Install pip requirements into each Python service directory for hot-reload
 # Skip if requirements.txt hasn't changed since last install (avoids slow PyPI lookups)
 shopt -s nullglob

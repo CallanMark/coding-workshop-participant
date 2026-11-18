@@ -265,3 +265,6 @@ backend/*/psycopg_binary/
 backend/*/psycopg_binary.libs/
 backend/*/typing_extensions.py
 backend/*/bin/
+
+# Generated copies of backend/_common (bin/sync-common.sh)
+backend/*/common/
