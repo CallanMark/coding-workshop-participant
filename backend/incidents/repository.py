@@ -9,12 +9,14 @@ from common.db import get_conn
 INCIDENT_SELECT = """
     SELECT i.*,
            b.name AS building_name, f.name AS floor_name, s.code AS seat_code,
-           c.name AS category_name, r.name AS reporter_name, a.name AS assignee_name
+           c.name AS category_name, t.name AS team_name,
+           r.name AS reporter_name, a.name AS assignee_name
     FROM incidents i
     JOIN buildings b       ON b.id = i.building_id
     LEFT JOIN floors f     ON f.id = i.floor_id
     LEFT JOIN seats s      ON s.id = i.seat_id
-    LEFT JOIN categories c ON c.id = i.category_id
+    JOIN categories c      ON c.id = i.category_id
+    JOIN teams t           ON t.id = i.team_id
     JOIN users r           ON r.id = i.reporter_id
     LEFT JOIN users a      ON a.id = i.assignee_id
 """
@@ -41,13 +43,19 @@ def lock_incident(incident_id: int) -> dict | None:
     return get_conn().execute("SELECT * FROM incidents WHERE id = %s FOR UPDATE", (incident_id,)).fetchone()
 
 
+def get_category_team(category_id: int) -> int | None:
+    """The team that owns a category, or None if the category does not exist."""
+    row = get_conn().execute("SELECT team_id FROM categories WHERE id = %s", (category_id,)).fetchone()
+    return row["team_id"] if row else None
+
+
 def insert_incident(fields: dict) -> dict:
     """Insert an incident (status defaults to 'open') and return the new row."""
     return get_conn().execute(
         """
-        INSERT INTO incidents (title, description, category_id, building_id,
+        INSERT INTO incidents (title, description, category_id, team_id, building_id,
                                floor_id, seat_id, reporter_id, priority)
-        VALUES (%(title)s, %(description)s, %(category_id)s, %(building_id)s,
+        VALUES (%(title)s, %(description)s, %(category_id)s, %(team_id)s, %(building_id)s,
                 %(floor_id)s, %(seat_id)s, %(reporter_id)s, %(priority)s)
         RETURNING *
         """,
@@ -64,18 +72,23 @@ def update_status(incident_id: int, fields: dict) -> None:
             blocked_reason = %(blocked_reason)s,
             acknowledged_at = %(acknowledged_at)s,
             resolved_at = %(resolved_at)s,
-            closed_at = %(closed_at)s
+            closed_at = %(closed_at)s,
+            updated_at = %(updated_at)s
         WHERE id = %(id)s
         """,
         {**fields, "id": incident_id},
     )
 
 
-def insert_note(incident_id: int, author_id: int, body: str) -> None:
-    """Add a note to an incident."""
+def insert_event(incident_id: int, actor_id: int | None, event_type: str,
+                 from_value: str | None = None, to_value: str | None = None, reason: str | None = None) -> None:
+    """Append to the incident's audit trail (incident_events)."""
     get_conn().execute(
-        "INSERT INTO incident_notes (incident_id, author_id, body) VALUES (%s, %s, %s)",
-        (incident_id, author_id, body),
+        """
+        INSERT INTO incident_events (incident_id, actor_id, event_type, from_value, to_value, reason)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (incident_id, actor_id, event_type, from_value, to_value, reason),
     )
 
 

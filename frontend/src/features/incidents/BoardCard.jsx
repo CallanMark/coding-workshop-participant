@@ -15,6 +15,7 @@ const boardIncidentShape = PropTypes.shape({
   reporter_id: PropTypes.number.isRequired,
   assignee_id: PropTypes.number,
   assignee_name: PropTypes.string,
+  team_name: PropTypes.string,
   building_name: PropTypes.string,
   floor_name: PropTypes.string,
   seat_code: PropTypes.string,
@@ -43,7 +44,7 @@ export function BoardCardContent({ incident, userId }) {
       </Stack>
       <Typography variant="caption" color="text.secondary" component="p">{location}</Typography>
       <Typography variant="caption" color="text.secondary" component="p">
-        {incident.assignee_name || 'Unassigned'}
+        {incident.team_name} · {incident.assignee_name || 'Unassigned'}
       </Typography>
       {incident.status === 'blocked' && incident.blocked_reason && (
         <Typography variant="caption" color="error" component="p">

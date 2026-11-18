@@ -46,6 +46,7 @@ const incidentShape = PropTypes.shape({
   status: PropTypes.string.isRequired,
   priority: PropTypes.string.isRequired,
   category_name: PropTypes.string,
+  team_name: PropTypes.string,
   reporter_name: PropTypes.string,
   assignee_name: PropTypes.string,
   created_at: PropTypes.string.isRequired,
@@ -66,6 +67,7 @@ function IncidentTable({ incidents }) {
             <TableCell>Status</TableCell>
             <TableCell>Priority</TableCell>
             <TableCell>Category</TableCell>
+            <TableCell>Team</TableCell>
             <TableCell>Location</TableCell>
             <TableCell>Reporter</TableCell>
             <TableCell>Assignee</TableCell>
@@ -79,7 +81,8 @@ function IncidentTable({ incidents }) {
               <TableCell>{incident.title}</TableCell>
               <TableCell><StatusChip status={incident.status} /></TableCell>
               <TableCell><PriorityChip priority={incident.priority} /></TableCell>
-              <TableCell>{incident.category_name || '—'}</TableCell>
+              <TableCell>{incident.category_name}</TableCell>
+              <TableCell>{incident.team_name}</TableCell>
               <TableCell>{formatLocation(incident)}</TableCell>
               <TableCell>{incident.reporter_name}</TableCell>
               <TableCell>{incident.assignee_name || 'Unassigned'}</TableCell>
@@ -115,7 +118,7 @@ function IncidentCards({ incidents }) {
             </Stack>
             <Typography variant="body2" color="text.secondary">
               {formatLocation(incident)}
-              {incident.category_name ? ` — ${incident.category_name}` : ''}
+              {` — ${incident.category_name} (${incident.team_name})`}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {incident.assignee_name || 'Unassigned'} · {formatDate(incident.created_at)}

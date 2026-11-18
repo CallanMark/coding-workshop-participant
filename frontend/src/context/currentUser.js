@@ -12,6 +12,7 @@ export const DEV_USERS = [
   { id: 4, name: 'Fred Facilities', role: 'engineer' },
   { id: 5, name: 'Tina Tech', role: 'engineer' },
   { id: 6, name: 'Omar Offline', role: 'engineer' },
+  { id: 7, name: 'Morgan Manager', role: 'manager' },
 ];
 
 export const CurrentUserContext = createContext(null);
