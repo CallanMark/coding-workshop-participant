@@ -1,0 +1,1 @@
+- 10:12 I have desgined the database schema and came with a rough divide for the services (incidents,auth, faculty,analytics) , I may extend this to include a notifications service but later on but seems overkill for now. I plan on creating a fist slice with indicents  CRUD (without any auth) working e2e (frontend/backend) and then move on to auth/ login from there
