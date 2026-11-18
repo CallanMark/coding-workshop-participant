@@ -1,0 +1,114 @@
+name: CI
+
+# Checks on every pull request and on pushes to feature branches.
+# On main, deploy.yml calls this workflow first, so deploys only happen when CI is green.
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'   # same as the Lambda runtime
+
+      - name: Copy shared code into services
+        run: ./bin/sync-common.sh
+
+      - name: Ruff (config in ruff.toml)
+        run: pip install ruff && ruff check backend
+
+      - name: Compile all services
+        run: python -m compileall -q -x '_examples' backend
+
+      - name: Pytest (once backend tests exist)
+        run: |
+          if compgen -G "backend/*/tests" > /dev/null; then
+            pip install pytest pytest-cov 'psycopg[binary]'
+            for tests in backend/*/tests; do
+              (cd "$(dirname "$tests")" && pytest -q)
+            done
+          else
+            echo "No backend tests yet - skipping" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  database:
+    name: Schema and seed apply cleanly
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres123
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply schema and seed
+        run: ./bin/init-db.sh
+
+      - name: Re-apply (must be idempotent)
+        run: ./bin/init-db.sh
+
+      - name: Seed produced data
+        env:
+          PGPASSWORD: postgres123
+        run: |
+          count=$(psql -h localhost -U postgres -tAc "SELECT count(*) FROM incidents")
+          echo "incidents seeded: $count"
+          test "$count" -gt 0
+
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - run: npm install
+      - run: npm run lint
+      - run: npm test --if-present
+      - run: npm run build
+
+  terraform:
+    name: Terraform fmt and validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+
+  scripts:
+    name: Shell script syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n on every script
+        run: for f in bin/*.sh; do bash -n "$f" || exit 1; done

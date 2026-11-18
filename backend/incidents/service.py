@@ -3,7 +3,7 @@ Incidents service layer: validation, workflow rules and permissions.
 Raises common.errors.ApiError subclasses; never builds HTTP responses or SQL.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from psycopg import errors as pg_errors
 
@@ -153,7 +153,7 @@ def _relations(incident: dict, user_id: int, role: str) -> set[str]:
 
 def _status_fields(incident: dict, new_status: str, reason: str) -> dict:
     """The workflow columns after moving `incident` to `new_status` (timestamps set by the backend)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     old_status = incident["status"]
     fields = {
         "status": new_status,

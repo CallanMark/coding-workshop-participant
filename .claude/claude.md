@@ -205,6 +205,13 @@ AWS_ENDPOINT_URL="http://localhost.localstack.cloud:4566" aws logs tail /aws/lam
 
 Local Lambda DB settings (injected): host `172.17.0.1`, port 5432, db/user `postgres`, password `postgres123`. In the cloud use `sslmode=require` when `IS_LOCAL` is `false`.
 
+## CI/CD
+
+- `.github/workflows/ci.yml` (PRs and feature-branch pushes): ruff (`ruff.toml`), compile, pytest once `backend/<service>/tests` exist, schema + seed applied twice against Postgres 16, frontend lint/test/build, `terraform fmt -check` + `validate`, `bash -n` on `bin/*.sh`.
+- `.github/workflows/deploy.yml` (push to `main`, or manual): runs CI, then `deploy-backend.sh aws`, `deploy-frontend.sh aws`, and a smoke test (`GET /` and `GET /api/incidents`). One deploy at a time.
+- Needs repo secrets `PARTICIPANT_ID`, `PARTICIPANT_CODE` (optional `PARTICIPANT_URL`) and repo variable `EVENT_ID`.
+- Keep CI green locally before pushing: `ruff check backend`, `cd frontend && npm run lint && npm run build`, `terraform fmt -check -recursive infra`.
+
 ## Known repo gotchas
 
 1. `bin/proxy-server.js` drops the `Authorization` header. Add `...(headers.authorization && { authorization: headers.authorization }),` to the forwarded headers.

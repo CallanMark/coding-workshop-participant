@@ -5,8 +5,9 @@ HTTP plumbing shared by all services: parse the Lambda event, match a route, bui
 import base64
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from common.db import ensure_schema
 from common.errors import ApiError, BadRequest, NotFound
@@ -83,7 +84,7 @@ def match(path: str, parts: list[str]) -> dict[str, int] | None:
     if len(pattern) != len(parts):
         return None
     params = {}
-    for expected, actual in zip(pattern, parts):
+    for expected, actual in zip(pattern, parts, strict=True):
         if expected.startswith("{") and expected.endswith("}"):
             if not actual.isdigit():
                 return None
