@@ -112,6 +112,8 @@ locals {
     MONGO_USER    = data.aws_caller_identity.this.id == "000000000000" ? "" : try(one(aws_docdb_cluster.this.*.master_username), "")
     MONGO_PASS    = data.aws_caller_identity.this.id == "000000000000" ? "" : try(one(aws_docdb_cluster.this.*.master_password), "")
     JWT_SECRET    = random_password.jwt.result
+    SEED_ON_EMPTY = "true"
+    SEED_PASSWORD = var.seed_password
   }
   lambda_role_arn = format(
     "arn:%s:iam::%s:role/%s-lambda-%s-%s",

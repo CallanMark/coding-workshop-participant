@@ -1,17 +1,19 @@
 name: Deploy
 
-# Every push to main: run CI, then deploy backend + frontend to AWS, then smoke test.
+# Every push (any branch): run CI, then deploy backend + frontend to AWS, then smoke test.
+# There is ONE cloud environment, so the latest push wins: before the demo, push only to main.
 # Can also be started by hand from the Actions tab.
 #
-# Repository secrets (Settings → Secrets and variables → Actions):
-#   PARTICIPANT_ID     your workshop participant id
-#   PARTICIPANT_CODE   your workshop participant code
-#   PARTICIPANT_URL    optional; only needed if the lookup by EVENT_ID fails
-# Repository variable:
-#   EVENT_ID           workshop event id used to look up the credentials URL
+# Settings → Secrets and variables → Actions:
+#   Secrets (sensitive, write-only):
+#     PARTICIPANT_CODE   your workshop participant code
+#     SEED_PASSWORD      password for the seeded demo users in the cloud database
+#     PARTICIPANT_URL    optional; only needed if the lookup by EVENT_ID fails
+#   Variables (not sensitive; a secret with the same name also works):
+#     EVENT_ID           workshop event id used to look up the credentials URL
+#     PARTICIPANT_ID     your workshop participant id
 on:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -34,18 +36,35 @@ jobs:
       name: aws
       url: ${{ steps.urls.outputs.website_url }}
     env:
-      PARTICIPANT_ID: ${{ secrets.PARTICIPANT_ID }}
+      PARTICIPANT_ID: ${{ vars.PARTICIPANT_ID || secrets.PARTICIPANT_ID }}
       PARTICIPANT_CODE: ${{ secrets.PARTICIPANT_CODE }}
       PARTICIPANT_URL: ${{ secrets.PARTICIPANT_URL }}
-      EVENT_ID: ${{ vars.EVENT_ID }}
+      # Terraform passes it to the Lambdas; the first cold start seeds the empty database with it
+      TF_VAR_seed_password: ${{ secrets.SEED_PASSWORD }}
+      EVENT_ID: ${{ vars.EVENT_ID || secrets.EVENT_ID }}
       AWS_REGION: us-east-1
     steps:
       - uses: actions/checkout@v4
 
       - name: Check secrets are set
         run: |
+          # Values pasted into GitHub often carry a trailing newline or space; strip them for later steps
+          for name in EVENT_ID PARTICIPANT_ID PARTICIPANT_CODE; do
+            value=$(printf '%s' "${!name}" | tr -d '[:space:]')
+            [ "$name" = PARTICIPANT_CODE ] && [ -n "$value" ] && echo "::add-mask::$value"
+            printf -v "$name" '%s' "$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
           if [ -z "$PARTICIPANT_ID" ] || [ -z "$PARTICIPANT_CODE" ]; then
-            echo "::error::Set the PARTICIPANT_ID and PARTICIPANT_CODE repository secrets"
+            echo "::error::Set the PARTICIPANT_ID variable and the PARTICIPANT_CODE secret"
+            exit 1
+          fi
+          if [ -z "$EVENT_ID" ]; then
+            echo "::error::Set the EVENT_ID repository variable (otherwise the wrong workshop API is used and returns 403)"
+            exit 1
+          fi
+          if [ -z "$TF_VAR_seed_password" ]; then
+            echo "::error::Set the SEED_PASSWORD repository secret (password for the seeded demo users)"
             exit 1
           fi
 
@@ -88,11 +107,19 @@ jobs:
           retry="--retry 5 --retry-delay 15 --retry-all-errors --max-time 60"
           curl -fsS $retry -o /dev/null "$WEBSITE_URL"
           echo "✓ frontend responds"
-          # First call can be slow: Lambda cold start + ensure_schema() on the database
+          # First call can be slow: Lambda cold start + ensure_schema() (and seeding an empty database)
           count=$(curl -fsS $retry "${API_URL%/}/api/incidents" | jq length)
           echo "✓ GET /api/incidents returned $count incidents"
+          # Sign in as the seeded admin, then use the token: proves auth, JWT secret and seed data
+          login=$(jq -cn --arg p "$TF_VAR_seed_password" '{email: "admin@acme.inc", password: $p}')
+          token=$(curl -fsS $retry -H 'Content-Type: application/json' --data "$login" \
+            "${API_URL%/}/api/auth/login" | jq -r .token)
+          me=$(curl -fsS $retry -H "Authorization: Bearer $token" "${API_URL%/}/api/auth/me" | jq -r .email)
+          [ "$me" = "admin@acme.inc" ] || { echo "::error::Signed-in /api/auth/me returned '$me'"; exit 1; }
+          echo "✓ admin can sign in and /api/auth/me returns $me"
           {
             echo "### Deployed"
             echo "- Website: $WEBSITE_URL"
             echo "- API: ${API_URL%/}/api/incidents ($count incidents)"
+            echo "- Sign-in: admin@acme.inc → /api/auth/me OK"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -83,3 +83,10 @@ variable "aws_eks_type" {
     error_message = "The aws_eks_type variable must be either 'ON_DEMAND' or 'SPOT'."
   }
 }
+
+variable "seed_password" {
+  description = "Password given to the seeded demo users when an empty cloud database is seeded (from the SEED_PASSWORD GitHub secret). Empty: the cloud database is not seeded."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

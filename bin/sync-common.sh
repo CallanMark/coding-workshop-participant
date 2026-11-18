@@ -23,6 +23,6 @@ for req in "$BACKEND_DIR"/*/requirements.txt; do
     case "$(basename "$svc_dir")" in _*|.*) continue ;; esac
     rm -rf "$svc_dir/common"
     mkdir -p "$svc_dir/common"
-    cp "$COMMON_DIR"/*.py "$COMMON_DIR/schema.sql" "$svc_dir/common/"
+    cp "$COMMON_DIR"/*.py "$COMMON_DIR"/*.sql "$svc_dir/common/"
     echo "  ✓ Synced common/ into $(basename "$svc_dir")"
 done

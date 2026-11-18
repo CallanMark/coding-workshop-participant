@@ -1,11 +1,9 @@
 name: CI
 
-# Checks on every pull request and on pushes to feature branches.
-# On main, deploy.yml calls this workflow first, so deploys only happen when CI is green.
+# Checks on every pull request. On every push, deploy.yml calls this workflow first,
+# so a push is only deployed when CI is green (and CI does not run twice per push).
 on:
   pull_request:
-  push:
-    branches-ignore: [main]
   workflow_call:
 
 permissions:
