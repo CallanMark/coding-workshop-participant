@@ -217,8 +217,8 @@ Local Lambda DB settings (injected): host `172.17.0.1`, port 5432, db/user `post
 
 ## CI/CD
 
-- `.github/workflows/ci.yml` (PRs and feature-branch pushes): ruff (`ruff.toml`), compile, pytest once `backend/<service>/tests` exist, schema + seed applied twice against Postgres 16, frontend lint/test/build, `terraform fmt -check` + `validate`, `bash -n` on `bin/*.sh`.
-- `.github/workflows/deploy.yml` (push to `main`, or manual): runs CI, then `deploy-backend.sh aws`, `deploy-frontend.sh aws`, and a smoke test (`GET /` and `GET /api/incidents`). One deploy at a time.
+- `.github/workflows/ci.yml` (PRs, and called by deploy.yml on every push): ruff (`ruff.toml`), compile, pytest once `backend/<service>/tests` exist, schema + seed applied twice against Postgres 16, frontend lint/test/build, `terraform fmt -check` + `validate`, `bash -n` on `bin/*.sh`.
+- `.github/workflows/deploy.yml` (every push on any branch, or manual): runs CI, then `deploy-backend.sh aws`, `deploy-frontend.sh aws`, and a smoke test (`GET /`, `GET /api/incidents`, sign in as the seeded admin with `SEED_PASSWORD`, then `GET /api/auth/me`). One deploy at a time; there is one cloud environment, so the latest push wins. Needs the `EVENT_ID` and `PARTICIPANT_ID` variables and the `PARTICIPANT_CODE` and `SEED_PASSWORD` secrets.
 - Needs repo secrets `PARTICIPANT_ID`, `PARTICIPANT_CODE` (optional `PARTICIPANT_URL`) and repo variable `EVENT_ID`.
 - Keep CI green locally before pushing: `ruff check backend`, `cd frontend && npm run lint && npm run build`, `terraform fmt -check -recursive infra`.
 

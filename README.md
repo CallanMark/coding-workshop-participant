@@ -111,3 +111,91 @@ We'd love to hear your feedback! Please:
 * 🐛 Report issues on GitHub
 * 💡 Suggest improvements
 * 📝 Share your experience
+
+## Cloud Deployment (AWS)
+
+The app runs in AWS in the workshop region (`eu-west-1`):
+
+```
+Browser ──► CloudFront ──┬─► S3                 React frontend
+                         └─► /api/<service>*  ─► Lambda per service (auth, incidents, …) ──► Aurora PostgreSQL
+```
+
+### How it is deployed
+
+Every push (any branch) runs `.github/workflows/deploy.yml`:
+
+1. CI runs first (lint, tests, build). A red CI never deploys.
+2. `./bin/deploy-backend.sh aws` applies Terraform (`infra/`): Lambdas, Aurora, CloudFront.
+3. `./bin/deploy-frontend.sh aws` builds the frontend and uploads it to S3.
+4. A smoke test loads the site, lists incidents, signs in as the seeded admin, and calls `/api/auth/me`.
+
+There is **one** cloud environment, so the latest push wins. Before a demo, push only to `main`.
+
+GitHub settings it needs (Settings → Secrets and variables → Actions):
+
+| Name | Kind | Value |
+|---|---|---|
+| `PARTICIPANT_CODE` | Secret | Workshop participant code (from the organisers' email) |
+| `SEED_PASSWORD` | Secret | Password for the seeded demo users in the cloud |
+| `EVENT_ID` | Variable | Workshop event id |
+| `PARTICIPANT_ID` | Variable | Workshop participant id |
+| `AWS_REGION` | Variable (optional) | Defaults to `eu-west-1` |
+
+### Finding the app
+
+The website URL is printed in the deploy job's summary. With AWS credentials (`./bin/setup-participant.sh`) you can also run:
+
+```bash
+terraform -chdir=infra output -raw website_url
+```
+
+### Signing in
+
+The cloud database is only reachable from the Lambdas. On the first start, a Lambda creates the tables (`schema.sql`) and, if the database has no users, loads `seed.sql`. Every seeded account gets the `SEED_PASSWORD` secret as its password, never the local dev password. Without that secret nothing is seeded.
+
+| Email | Role |
+|---|---|
+| `admin@acme.inc` | Admin |
+| `morgan@acme.inc`, `pat@acme.inc` | Manager |
+| `fred@acme.inc`, `tina@acme.inc`, `omar@acme.inc` | Engineer |
+| `eve@acme.inc`, `sam@acme.inc` | Employee |
+
+Seeding happens once: changing `SEED_PASSWORD` later does not change existing accounts. New employees can register with an `@acme.inc` address.
+
+### Developing against the cloud
+
+Run the UI locally against the deployed API, with no LocalStack needed:
+
+```bash
+cd frontend
+VITE_PROXY_TARGET=https://<cloudfront-domain> npm run dev:cloud   # http://localhost:3000
+```
+
+The Vite dev server forwards `/api/*` to CloudFront, so the browser stays same-origin (no CORS). To avoid passing the URL each time, put `VITE_PROXY_TARGET=...` in `frontend/.env.cloud.local`, which is gitignored. Backend changes reach the cloud by pushing, which deploys them.
+
+### Logs
+
+Each service has its own Lambda, named `coding-workshop-<service>-<participant-id>`:
+
+```bash
+aws logs tail /aws/lambda/coding-workshop-auth-<participant-id> --follow --region eu-west-1
+aws logs tail /aws/lambda/coding-workshop-incidents-<participant-id> --since 30m --region eu-west-1
+```
+
+Unexpected errors are logged with a stack trace. The API returns only a generic 500 message.
+
+### Aurora pausing and demo day
+
+Aurora Serverless v2 is set to `min_capacity = 0.0` (`infra/rds.tf`), so it pauses when idle and costs nothing. The first request after a pause can take about 15s while it resumes. The backend retries the database connection once, and the frontend shows an error with a retry option if a request still fails.
+
+For a live demo, set `min_capacity = 0.5` in `infra/rds.tf` and push, so the database never pauses. Set it back to `0.0` afterwards.
+
+### Troubleshooting deploys
+
+| Error | Cause and fix |
+|---|---|
+| `Workshop API returned HTTP 403` | Wrong or missing `EVENT_ID`, `PARTICIPANT_ID` or `PARTICIPANT_CODE`. Without `EVENT_ID` the script falls back to a different event's API. |
+| `PARTICIPANT_URL not found for event ID` | `EVENT_ID` does not match the workshop DNS record (stray spaces and newlines are stripped automatically). |
+| `requested bucket from "us-east-1", actual location "eu-west-1"` | Wrong region. Set the `AWS_REGION` variable to the workshop region. |
+| `Set the SEED_PASSWORD repository secret` | Add the secret; the cloud database is not seeded without it. |
