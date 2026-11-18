@@ -20,11 +20,11 @@ export default defineConfig(({ mode }) => {
         proxy: { '/api': { target: cloudTarget.replace(/\/$/, ''), changeOrigin: true, secure: true } },
       }),
     },
-    // Vitest: browser-like DOM, shared setup, tests next to the code they cover (*.test.js[x])
+    // Vitest: browser-like DOM, shared setup; tests live in tests/, mirroring src/ (*.test.js[x])
     test: {
       environment: 'jsdom',
-      setupFiles: './src/test/setup.js',
-      include: ['src/**/*.test.{js,jsx}'],
+      setupFiles: './tests/setup.js',
+      include: ['tests/**/*.test.{js,jsx}'],
     },
   }
 })

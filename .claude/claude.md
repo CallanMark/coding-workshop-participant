@@ -238,6 +238,7 @@ Local Lambda DB settings (injected): host `172.17.0.1`, port 5432, db/user `post
 - The workflow: test every allowed transition and at least one forbidden transition per status; test that each change writes an `incident_events` row and sets its timestamp (and reason where required).
 - Reports: seed known data and assert exact counts and averages.
 - Frontend: incident form validation, role-based button visibility, status change, error and empty states. Mock `src/api/*`.
+- Frontend tests live in `frontend/tests/`, mirroring `src/` (e.g. `tests/api/client.test.js` covers `src/api/client.js`); shared setup in `tests/setup.js`. Backend tests live in `backend/<service>/tests/`.
 - Targets: 80%+ coverage backend and frontend; critical paths (register → create incident → assign → resolve → close) covered end to end.
 - Record commands, results and known gaps in the README.
 
