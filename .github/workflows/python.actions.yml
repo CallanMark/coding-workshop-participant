@@ -23,5 +23,7 @@ jobs:
       - name: Install Bandit
         run: pip3 install bandit
 
+      # Scan application code only. Tests use `assert` (B101) and fake passwords (B105)
+      # by design, and never ship to Lambda; ruff + pytest cover them in ci.yml.
       - name: Run Bandit
-        run: bandit -r ./backend
+        run: bandit -r ./backend -x '*/tests/*'

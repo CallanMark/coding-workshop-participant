@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from common.auth import user_from_headers
 from common.db import ensure_schema
 from common.errors import ApiError, BadRequest, NotFound
 
@@ -25,16 +26,22 @@ class Request:
     query: dict[str, str] = field(default_factory=dict)
     body: dict = field(default_factory=dict)
     params: dict[str, int] = field(default_factory=dict)  # path params, e.g. {"id": 12}
+    headers: dict[str, str] = field(default_factory=dict)
+    user: dict | None = None  # signed-in user {"id", "role", "team_id"}; None only on public routes
 
 
 @dataclass
 class Route:
-    """One endpoint. `path` is relative to the service, e.g. "/{id}/status"; `{name}` matches an integer."""
+    """
+    One endpoint. `path` is relative to the service, e.g. "/{id}/status"; `{name}` matches an integer.
+    Routes require a signed-in user unless `public=True`.
+    """
 
     method: str
     path: str
     handler: Callable[[Request], Any]
     status: int = 200
+    public: bool = False
 
 
 def respond(status: int, body: Any = None) -> dict:
@@ -75,7 +82,13 @@ def parse_request(event: dict, service: str) -> Request:
     if not isinstance(body, dict):
         raise BadRequest("Request body must be a JSON object")
 
-    return Request(method=method, parts=parts, query=event.get("queryStringParameters") or {}, body=body)
+    return Request(
+        method=method,
+        parts=parts,
+        query=event.get("queryStringParameters") or {},
+        body=body,
+        headers=event.get("headers") or {},
+    )
 
 
 def match(path: str, parts: list[str]) -> dict[str, int] | None:
@@ -106,6 +119,8 @@ def handle(event: dict | None, service: str, routes: list[Route]) -> dict:
             if params is None:
                 continue
             req.params = params
+            if not route.public:
+                req.user = user_from_headers(req.headers)  # 401 if missing, invalid or expired
             return respond(route.status, route.handler(req))
         raise NotFound("Route not found")
     except ApiError as err:
