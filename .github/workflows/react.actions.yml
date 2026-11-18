@@ -20,8 +20,25 @@ jobs:
         with:
           node-version: '24'
 
+      # Lockfile is committed, so install exactly what it pins.
       - name: Install npm dependencies
-        run: npm install --prefix ./frontend
+        run: npm ci --prefix ./frontend
 
-      - name: Run npm audit
-        run: npm audit --prefix ./frontend --audit-level=high
+      # Blocking: high/critical issues in packages that ship to the browser.
+      - name: Run npm audit (shipped dependencies)
+        run: npm audit --prefix ./frontend --omit=dev --audit-level=high
+
+      # Non-blocking: build-time tooling (vite, eslint, ...). These never reach users,
+      # and some advisories have no patched release yet (e.g. picomatch via vite).
+      # Reported in the job summary so they stay visible until a fix ships.
+      - name: Run npm audit (all dependencies, report only)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          {
+            echo '### npm audit (all dependencies, non-blocking)'
+            echo '```'
+            npm audit --prefix ./frontend --audit-level=high 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          npm audit --prefix ./frontend --audit-level=high

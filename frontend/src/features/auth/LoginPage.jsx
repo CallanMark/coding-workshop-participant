@@ -1,0 +1,134 @@
+import { useState } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import { useAuth } from '../../context/auth';
+
+const HOME = '/incidents/mine';
+const PUBLIC_PATHS = ['/', '/login'];
+
+/**
+ * Check the form before submitting. The server returns one generic 401 for every failed
+ * sign-in, so blank fields are caught here to give a clearer message.
+ * @param {{email: string, password: string}} form
+ * @returns {Object<string, string>} Field name → error message (empty when valid).
+ */
+function validate(form) {
+  const errors = {};
+  if (!form.email.trim()) errors.email = 'Enter your email address';
+  if (!form.password) errors.password = 'Enter your password';
+  return errors;
+}
+
+/**
+ * Where to go after signing in: the page the user was sent here from, or the home page.
+ * @param {object | undefined} from - Location saved by RequireAuth.
+ * @returns {string}
+ */
+function destination(from) {
+  if (!from || PUBLIC_PATHS.includes(from.pathname)) return HOME;
+  return `${from.pathname}${from.search || ''}`;
+}
+
+/**
+ * Sign-in page, shown at / and /login. Signed-in users are sent straight on.
+ */
+export default function LoginPage() {
+  const { user, login, notice } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const next = destination(location.state?.from);
+  if (user && !submitting) return <Navigate to={next} replace />;
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => ({ ...prev, [name]: undefined }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setFormError('');
+    const clientErrors = validate(form);
+    setErrors(clientErrors);
+    if (Object.keys(clientErrors).length > 0) return;
+
+    setSubmitting(true);
+    try {
+      await login(form.email.trim(), form.password);
+      navigate(next, { replace: true });
+    } catch (error) {
+      setFormError(error.message);
+      setForm((prev) => ({ ...prev, password: '' }));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Box
+      component="main"
+      sx={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2,
+      }}
+    >
+      <Paper variant="outlined" sx={{ p: { xs: 3, sm: 4 }, width: '100%', maxWidth: 420 }}>
+        <Typography variant="overline" color="primary">ACME Facilities</Typography>
+        <Typography variant="h5" component="h1" gutterBottom>Sign in</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Report and track facility incidents.
+        </Typography>
+        <form onSubmit={handleSubmit} noValidate>
+          <Stack spacing={2}>
+            {notice && !formError && <Alert severity="info">{notice}</Alert>}
+            {formError && <Alert severity="error">{formError}</Alert>}
+            <TextField
+              name="email"
+              label="Email"
+              type="email"
+              autoComplete="username"
+              autoFocus
+              required
+              value={form.email}
+              onChange={handleChange}
+              error={Boolean(errors.email)}
+              helperText={errors.email}
+              disabled={submitting}
+            />
+            <TextField
+              name="password"
+              label="Password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={form.password}
+              onChange={handleChange}
+              error={Boolean(errors.password)}
+              helperText={errors.password}
+              disabled={submitting}
+            />
+            <Button
+              type="submit"
+              variant="contained"
+              size="large"
+              disabled={submitting}
+              startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : null}
+            >
+              {submitting ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </Stack>
+        </form>
+      </Paper>
+    </Box>
+  );
+}

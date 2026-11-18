@@ -1,12 +1,11 @@
 import AppBar from '@mui/material/AppBar';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
-import MenuItem from '@mui/material/MenuItem';
-import TextField from '@mui/material/TextField';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
-import { NavLink, Outlet } from 'react-router-dom';
-import { DEV_USERS, useCurrentUser } from '../context/currentUser';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/auth';
 
 const NAV_LINKS = [
   { to: '/incidents/mine', label: 'My incidents' },
@@ -14,34 +13,34 @@ const NAV_LINKS = [
 ];
 
 /**
- * Temporary "acting as" dropdown so each persona can be tried before login exists.
- * TODO(auth): replace with the signed-in user's name and a logout button.
+ * The signed-in user's name and role, and a sign-out button.
  */
-function UserPicker() {
-  const { user, setUserId } = useCurrentUser();
+function UserMenu() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    navigate('/login', { replace: true });
+    logout();
+  };
+
   return (
-    <TextField
-      select
-      size="small"
-      label="Acting as"
-      value={user.id}
-      onChange={(event) => setUserId(Number(event.target.value))}
-      sx={{
-        minWidth: 200,
-        '& .MuiInputBase-root': { color: 'inherit', bgcolor: 'rgba(255,255,255,0.12)' },
-        '& .MuiInputLabel-root, & .MuiSvgIcon-root': { color: 'inherit' },
-        '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.5)' },
-      }}
-    >
-      {DEV_USERS.map((u) => (
-        <MenuItem key={u.id} value={u.id}>{u.name} ({u.role})</MenuItem>
-      ))}
-    </TextField>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+      <Box sx={{ textAlign: 'right', lineHeight: 1.2 }}>
+        <Typography variant="body2" component="div">{user.name}</Typography>
+        <Typography variant="caption" component="div" sx={{ opacity: 0.8, textTransform: 'capitalize' }}>
+          {user.role}
+        </Typography>
+      </Box>
+      <Button color="inherit" variant="outlined" size="small" onClick={handleLogout}>
+        Sign out
+      </Button>
+    </Box>
   );
 }
 
 /**
- * App shell: top bar with navigation and user picker, then the current page.
+ * App shell: top bar with navigation and the signed-in user, then the current page.
  */
 export default function Layout() {
   return (
@@ -65,7 +64,7 @@ export default function Layout() {
               </Button>
             ))}
           </nav>
-          <UserPicker />
+          <UserMenu />
         </Toolbar>
       </AppBar>
       <Container component="main" maxWidth="xl" sx={{ py: 3 }}>

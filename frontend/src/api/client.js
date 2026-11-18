@@ -1,6 +1,7 @@
 /**
  * The only module that calls fetch. Every API call goes through apiRequest.
  */
+import { clearSession, getToken } from './session';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -19,19 +20,33 @@ export class ApiError extends Error {
   }
 }
 
+let onSessionExpired = null;
+
 /**
- * Send a JSON request to the backend.
+ * Register what happens when a signed-in request gets a 401 (AuthProvider signs the user out).
+ * @param {function(string): void | null} handler - Receives the server's message.
+ */
+export function setSessionExpiredHandler(handler) {
+  onSessionExpired = handler;
+}
+
+/**
+ * Send a JSON request to the backend, with the login token when signed in.
  * @param {string} path - Path after /api, e.g. "/incidents".
  * @param {{method?: string, body?: object}} [options]
  * @returns {Promise<any>} Parsed JSON body (null for 204).
  * @throws {ApiError}
  */
 export async function apiRequest(path, { method = 'GET', body } = {}) {
+  const token = getToken();
   let response;
   try {
     response = await fetch(`${BASE_URL}/api${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -41,11 +56,14 @@ export async function apiRequest(path, { method = 'GET', body } = {}) {
   const data = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
     const error = data?.error;
-    throw new ApiError(
-      error?.message || `Request failed (${response.status})`,
-      response.status,
-      error?.details || {},
-    );
+    const message = error?.message || `Request failed (${response.status})`;
+    // A 401 on a request that carried a token means the session is no longer valid.
+    // (A 401 without a token is a failed sign-in, which the login form shows itself.)
+    if (response.status === 401 && token) {
+      clearSession();
+      onSessionExpired?.(message);
+    }
+    throw new ApiError(message, response.status, error?.details || {});
   }
   return data;
 }

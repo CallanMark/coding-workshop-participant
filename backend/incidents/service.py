@@ -27,6 +27,15 @@ TRANSITIONS = {
     ("open", "closed"):          {"who": {"reporter", "admin"}, "reason": True},   # cancel
 }
 
+# Database constraint name -> (field, message), so constraint violations become field-level 400s.
+CONSTRAINT_ERRORS = {
+    "incidents_building_id_fkey":  ("building_id", "Building does not exist"),
+    "incidents_reporter_id_fkey":  ("reporter_id", "User does not exist"),
+    "incidents_floor_in_building": ("floor_id", "Floor does not exist in that building"),
+    "incidents_seat_on_floor":     ("seat_id", "Seat does not exist on that floor"),
+    "incidents_seat_needs_floor":  ("seat_id", "Choose a floor before choosing a seat"),
+}
+
 
 def list_incidents(req: Request) -> list[dict]:
     """List incidents; ?user_id= limits to ones that user reported or is assigned to."""
@@ -44,10 +53,10 @@ def create_incident(req: Request) -> dict:
     title = (data.get("title") or "").strip()
     if not title:
         details["title"] = "Title is required"
-    for name in ("building_id", "reporter_id"):
+    for name in ("category_id", "building_id", "reporter_id"):
         if not isinstance(data.get(name), int):
             details[name] = f"{name} is required and must be an integer"
-    for name in ("category_id", "floor_id", "seat_id"):
+    for name in ("floor_id", "seat_id"):
         if data.get(name) is not None and not isinstance(data[name], int):
             details[name] = f"{name} must be an integer"
     priority = data.get("priority") or "medium"
@@ -60,7 +69,7 @@ def create_incident(req: Request) -> dict:
     fields = {
         "title": title,
         "description": data.get("description"),
-        "category_id": data.get("category_id"),
+        "category_id": data["category_id"],
         "building_id": data["building_id"],
         "floor_id": data.get("floor_id"),
         "seat_id": data.get("seat_id"),
@@ -68,15 +77,23 @@ def create_incident(req: Request) -> dict:
         "priority": priority,
     }
     try:
-        row = repository.insert_incident(fields)
-    except pg_errors.ForeignKeyViolation as exc:
-        column = exc.diag.constraint_name.removeprefix("incidents_").removesuffix("_fkey")
-        raise BadRequest(details={column: f"{column} does not exist"}) from exc
+        with transaction():
+            # The category routes the incident to its owning team.
+            fields["team_id"] = repository.get_category_team(fields["category_id"])
+            if fields["team_id"] is None:
+                raise BadRequest(details={"category_id": "Category does not exist"})
+            row = repository.insert_incident(fields)
+            repository.insert_event(row["id"], fields["reporter_id"], "created", to_value="open")
+    except (pg_errors.ForeignKeyViolation, pg_errors.CheckViolation) as exc:
+        field_error = CONSTRAINT_ERRORS.get(exc.diag.constraint_name)
+        if field_error is None:
+            raise
+        raise BadRequest(details=dict([field_error])) from exc
     return repository.get_incident(row["id"])
 
 
 def change_status(req: Request) -> dict:
-    """Move an incident to a new status, set its timestamps, and record any reason as a note."""
+    """Move an incident to a new status, set its timestamps, and record it in the audit trail."""
     incident_id = req.params["id"]
     new_status = req.body.get("status")
     reason = (req.body.get("reason") or "").strip()
@@ -115,8 +132,7 @@ def change_status(req: Request) -> dict:
             raise BadRequest(details={"reason": "A reason is required for this change"})
 
         repository.update_status(incident_id, _status_fields(incident, new_status, reason))
-        if reason:
-            repository.insert_note(incident_id, actor_id, f"Moved from {old_status} to {new_status}: {reason}")
+        repository.insert_event(incident_id, actor_id, "status_changed", old_status, new_status, reason or None)
 
     return repository.get_incident(incident_id)
 
@@ -161,6 +177,7 @@ def _status_fields(incident: dict, new_status: str, reason: str) -> dict:
         "acknowledged_at": incident["acknowledged_at"],
         "resolved_at": incident["resolved_at"],
         "closed_at": incident["closed_at"],
+        "updated_at": now,
     }
     if old_status == "open" and new_status == "in_progress" and fields["acknowledged_at"] is None:
         fields["acknowledged_at"] = now
