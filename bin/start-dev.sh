@@ -113,6 +113,9 @@ if [ "$PG_OK" = false ]; then
     done
 fi
 
+# Ensure the app schema exists and mock data is loaded (both idempotent)
+"$SCRIPT_DIR/init-db.sh" || { echo -e "  ✗ Database initialisation failed"; exit 1; }
+
 echo ""
 
 # ============================================================
