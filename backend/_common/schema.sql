@@ -113,6 +113,7 @@ CREATE INDEX IF NOT EXISTS users_team_idx          ON users (team_id);
 CREATE INDEX IF NOT EXISTS incidents_team_status   ON incidents (team_id, status);
 CREATE INDEX IF NOT EXISTS incidents_assignee_idx  ON incidents (assignee_id);
 CREATE INDEX IF NOT EXISTS incidents_reporter_idx  ON incidents (reporter_id);
+CREATE INDEX IF NOT EXISTS incidents_category_idx  ON incidents (category_id);
 CREATE INDEX IF NOT EXISTS incidents_location_idx  ON incidents (building_id, floor_id, seat_id);
 CREATE INDEX IF NOT EXISTS incident_notes_inc_idx  ON incident_notes (incident_id);
 CREATE INDEX IF NOT EXISTS incident_events_inc_idx ON incident_events (incident_id, created_at);
