@@ -105,6 +105,7 @@ jobs:
           WEBSITE_URL: ${{ steps.urls.outputs.website_url }}
           API_URL: ${{ steps.urls.outputs.api_base_url }}
         run: |
+          set -o pipefail   # a failed curl inside `curl | jq` must fail the step
           retry="--retry 5 --retry-delay 15 --retry-all-errors --max-time 60"
           curl -fsS $retry -o /dev/null "$WEBSITE_URL"
           echo "✓ frontend responds"
@@ -124,3 +125,16 @@ jobs:
             echo "- API: ${API_URL%/}/api/incidents ($count incidents)"
             echo "- Sign-in: admin@acme.inc → /api/auth/me OK"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # When anything above fails, print recent Lambda logs (stack traces) so the cause is in the job log.
+      # The API itself only ever returns a generic 500 message.
+      - name: Lambda logs (on failure)
+        if: failure()
+        run: |
+          functions=$(aws lambda list-functions --output text \
+            --query "Functions[?starts_with(FunctionName, 'coding-workshop-')].FunctionName" || true)
+          for fn in $functions; do
+            echo "::group::$fn (last 30 minutes)"
+            aws logs tail "/aws/lambda/$fn" --since 30m --format short 2>&1 | tail -n 100 || true
+            echo "::endgroup::"
+          done
