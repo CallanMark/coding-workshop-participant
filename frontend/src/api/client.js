@@ -3,7 +3,11 @@
  */
 import { clearSession, getToken } from './session';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// `npm run dev:cloud` (mode "cloud"): same origin, the dev server proxies /api to CloudFront.
+// Otherwise the build-time API URL (CloudFront in AWS), or the LocalStack proxy by default.
+const BASE_URL = import.meta.env.MODE === 'cloud'
+  ? ''
+  : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 /** Error thrown for any failed API call (HTTP error or network failure). */
 export class ApiError extends Error {

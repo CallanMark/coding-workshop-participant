@@ -6,12 +6,12 @@ name: Deploy
 #
 # Settings → Secrets and variables → Actions:
 #   Secrets (sensitive, write-only):
-#     PARTICIPANT_CODE   your workshop participant code
+#     PARTICIPANT_CODE   workshop participant code
 #     SEED_PASSWORD      password for the seeded demo users in the cloud database
 #     PARTICIPANT_URL    optional; only needed if the lookup by EVENT_ID fails
 #   Variables (not sensitive; a secret with the same name also works):
 #     EVENT_ID           workshop event id used to look up the credentials URL
-#     PARTICIPANT_ID     your workshop participant id
+#     PARTICIPANT_ID     workshop participant id
 on:
   push:
   workflow_dispatch:
@@ -42,7 +42,8 @@ jobs:
       # Terraform passes it to the Lambdas; the first cold start seeds the empty database with it
       TF_VAR_seed_password: ${{ secrets.SEED_PASSWORD }}
       EVENT_ID: ${{ vars.EVENT_ID || secrets.EVENT_ID }}
-      AWS_REGION: us-east-1
+      # Workshop region from the organisers' email (where the tfstate bucket lives); override with an AWS_REGION variable
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
     steps:
       - uses: actions/checkout@v4
 
