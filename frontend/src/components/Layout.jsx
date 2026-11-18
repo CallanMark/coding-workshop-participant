@@ -9,7 +9,7 @@ import { useAuth } from '../context/auth';
 
 const NAV_LINKS = [
   { to: '/incidents/mine', label: 'My incidents' },
-  { to: '/incidents', label: 'All incidents', end: true },
+  { to: '/incidents', label: 'Incidents', end: true },
 ];
 
 /**
