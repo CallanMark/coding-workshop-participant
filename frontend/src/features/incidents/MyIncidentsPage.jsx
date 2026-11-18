@@ -15,7 +15,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { changeIncidentStatus, listIncidents } from '../../api/incidents';
 import { NEXT_STATUSES, REASON_REQUIRED, STATUSES } from '../../constants';
-import { useCurrentUser } from '../../context/currentUser';
+import { useAuth } from '../../context/auth';
 import BoardCard, { BoardCardContent } from './BoardCard';
 import BoardColumn from './BoardColumn';
 import StatusReasonDialog from './StatusReasonDialog';
@@ -195,7 +195,7 @@ IncidentBoard.propTypes = {
  * "My incidents" page: incidents the current user reported or is assigned to, as a board.
  */
 export default function MyIncidentsPage() {
-  const { user } = useCurrentUser();
+  const { user } = useAuth();
   return (
     <>
       <Stack

@@ -9,7 +9,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { createIncident } from '../../api/incidents';
 import { PRIORITIES } from '../../constants';
-import { useCurrentUser } from '../../context/currentUser';
+import { useAuth } from '../../context/auth';
 
 // TODO: category/building/floor/seat become dropdowns once the facilities API exists,
 // and reporter_id is taken from the logged-in user once auth exists.
@@ -67,7 +67,7 @@ function toPayload(form) {
  */
 export default function IncidentCreatePage() {
   const navigate = useNavigate();
-  const { user } = useCurrentUser();
+  const { user } = useAuth();
   const [form, setForm] = useState(() => ({ ...EMPTY_FORM, reporter_id: String(user.id) }));
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');

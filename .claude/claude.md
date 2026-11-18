@@ -230,7 +230,7 @@ Local Lambda DB settings (injected): host `172.17.0.1`, port 5432, db/user `post
 4. `frontend/.env.sample` uses `REACT_APP_`; Vite needs `VITE_API_URL`. (Fixed.)
 5. The cloud DB is only reachable from the Lambdas: tables are created by code on cold start (`ensure_schema()`), and seed data runs through a script or admin-only endpoint, never automatically.
 6. Lambda deps are pip-installed into each service folder for hot reload. They must be wheels for the **Lambda runtime (python3.13, x86_64)**, not the host Python, or the import fails (`cannot import name 'pq' from psycopg_binary`). `start-dev.sh` passes `--python-version 3.13 --platform manylinux2014_x86_64 --only-binary=:all:`; use the same flags if installing by hand.
-7. **Temporary identity until auth:** the frontend has an "Acting as" picker (`src/context/currentUser.js`, mirrors seed users); the incidents API takes `?user_id=` on list, `reporter_id` on create and `actor_id` on status changes. All are marked `TODO(auth)`, and the incidents routes are `public=True` until milestone 2 switches the frontend to real login. Seeded users all have the dev password `Password123!`.
+7. **Incidents still trust ids from the request:** the frontend signs in for real (`AuthProvider`, token in localStorage, `client.js` sends `Authorization` and signs out on a 401), but the incidents API still takes `?user_id=` on list, `reporter_id` on create and `actor_id` on status changes, filled from the signed-in user. Those routes stay `public=True` (`TODO(auth)`) until the incidents branch switches them to `req.user`. Seeded users all have the dev password `Password123!`.
 
 ## Testing
 
