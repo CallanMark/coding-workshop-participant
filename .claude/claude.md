@@ -150,14 +150,18 @@ Requesting an incident outside your scope returns **404** (do not reveal it exis
 
 ### Backend
 
-- **Layers per service:** `function.py` (handler and routing only) → `service.py` (rules, validation, permissions) → `repository.py` (SQL only). For a very small service, separate functions in one file are fine.
-- **Shared code** in `backend/_common/` (db, errors, http, auth, validation, schema.sql), copied into each service by `scripts/sync-common.sh` before running or deploying. Never edit the generated `common/` copies.
-- **Errors:** raise `ApiError` subclasses (`BadRequest` 400, `Unauthorized` 401, `Forbidden` 403, `NotFound` 404, `Conflict` 409). Only `handle()` in `_common/http.py` turns them into responses. Body is always `{"error": {"message": str, "details": {field: message}}}`.
+- **Layers per service** (`backend/incidents/` is the reference; copy it for new services):
+  - `function.py`: Lambda entry only: `handle(event, "<service>", ROUTES)`.
+  - `routes.py`: `ROUTES = [Route(method, path, service.fn, status=...)]`, with a comment above each route saying who may call it. `{id}` in a path matches an integer and arrives as `req.params["id"]`.
+  - `service.py`: validation, rules and permissions. Takes a `Request`, returns data, raises `ApiError`s. No SQL, no HTTP.
+  - `repository.py`: SQL only. No rules. Multi-step writes are wrapped by the service in `with transaction():`.
+- **Shared code** in `backend/_common/` (`db.py`: `get_conn()`, `transaction()`, `ensure_schema()`; `errors.py`; `http.py`: `Request`, `Route`, `handle()`; `schema.sql`; later `auth.py`), copied into each service as `common/` by `bin/sync-common.sh` (run by start-dev and deploy-backend; re-run after editing `_common`). The copies are gitignored; never edit them.
+- **Errors:** raise `ApiError` subclasses (`BadRequest` 400, `Unauthorized` 401, `Forbidden` 403, `NotFound` 404, `Conflict` 409, `NotImplementedYet` 501 for stubs). Only `handle()` in `_common/http.py` turns them into responses. Body is always `{"error": {"message": str, "details": {field: message}}}`.
 - **Status codes:** 200 read/update, 201 create, 204 delete, 400 validation, 401 not signed in, 403 wrong role, 404 not found/out of scope, 409 duplicate or invalid transition, 500 unexpected (logged, never exposed).
 - **SQL:** always `%s` / `%(name)s` parameters, never f-strings. Use `RETURNING` on writes (0 rows → 404). Multi-step writes (e.g. status change + note) go in `with get_conn().transaction():`. Use `LEFT JOIN` for optional relations and `count(col)` after a LEFT JOIN.
 - **Validation:** required fields, enum values, `@acme.inc` email, that referenced building/floor/seat/engineer exist **and belong together** (seat is on that floor, floor in that building). Return field-level 400s.
 - **Auth first, then permission:** every route except register and login calls `require_user(req)` (401), then a role or ownership check (403/404). Centralise role checks in `_common/auth.py`.
-- **Paths:** locally the Lambda sees `/12`; behind CloudFront it sees `/api/incidents/12`. `parse_request()` strips `api` and the service name; route on `req["parts"]`.
+- **Paths:** locally the Lambda sees `/12`; behind CloudFront it sees `/api/incidents/12`. `parse_request()` strips `api` and the service name, so route paths in `routes.py` are relative (`/{id}/status`).
 
 ### Frontend
 
@@ -184,11 +188,11 @@ Requesting an incident outside your scope returns **404** (do not reveal it exis
 ## Commands
 
 ```bash
-./scripts/sync-common.sh            # copy _common into each service (before start-dev and deploys)
+./bin/sync-common.sh                # copy _common into each service (start-dev and deploy-backend run it)
 ./bin/init-db.sh                    # apply schema + seed mock data locally (idempotent; also run by start-dev)
 ./bin/init-db.sh --reset            # drop app tables, then recreate and reseed
 ./bin/start-dev.sh                  # Postgres, LocalStack, Lambdas, proxy :3001, Vite :3000
-cp -R backend/_examples/python-service backend/<service>   # new service, then restart start-dev
+mkdir backend/<service> && cp backend/incidents/{function,routes,service,repository}.py backend/incidents/requirements.txt backend/<service>/   # new service: then rename and strip, and restart start-dev
 cd backend && pytest --cov          # backend tests (target ≥ 80%)
 cd frontend && npx vitest run       # frontend tests
 cd frontend && npm run lint
@@ -205,7 +209,7 @@ Local Lambda DB settings (injected): host `172.17.0.1`, port 5432, db/user `post
 
 1. `bin/proxy-server.js` drops the `Authorization` header. Add `...(headers.authorization && { authorization: headers.authorization }),` to the forwarded headers.
 2. No JWT secret is injected. Add a `random_password` resource in `infra/main.tf` and `JWT_SECRET = random_password.jwt.result` to `env_vars` in `infra/locals.tf`.
-3. Each Lambda ships only its own folder: run `scripts/sync-common.sh` first, or `import common` fails.
+3. Each Lambda ships only its own folder: run `bin/sync-common.sh` first, or `import common` fails.
 4. `frontend/.env.sample` uses `REACT_APP_`; Vite needs `VITE_API_URL`. (Fixed.)
 5. The cloud DB is only reachable from the Lambdas: tables are created by code on cold start (`ensure_schema()`), and seed data runs through a script or admin-only endpoint, never automatically.
 6. Lambda deps are pip-installed into each service folder for hot reload. They must be wheels for the **Lambda runtime (python3.13, x86_64)**, not the host Python, or the import fails (`cannot import name 'pq' from psycopg_binary`). `start-dev.sh` passes `--python-version 3.13 --platform manylinux2014_x86_64 --only-binary=:all:`; use the same flags if installing by hand.
