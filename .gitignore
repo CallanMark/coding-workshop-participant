@@ -256,3 +256,12 @@ tfplan
 
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
+
+# Python packages pip-installed into backend services by bin/start-dev.sh
+backend/*/.pip_installed
+backend/*/*.dist-info/
+backend/*/psycopg/
+backend/*/psycopg_binary/
+backend/*/psycopg_binary.libs/
+backend/*/typing_extensions.py
+backend/*/bin/
