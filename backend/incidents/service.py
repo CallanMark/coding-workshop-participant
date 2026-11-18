@@ -17,20 +17,20 @@ STATUSES = ("open", "in_progress", "blocked", "resolved", "closed")
 
 # The single source of truth for the incident workflow.
 # (from, to) -> who may make the move, and whether a reason is required.
+# "manager" means the manager of the incident's team; they act as admin within their team.
 TRANSITIONS = {
-    ("open", "in_progress"):     {"who": {"assignee", "admin"}, "reason": False},
-    ("in_progress", "blocked"):  {"who": {"assignee", "admin"}, "reason": True},
-    ("blocked", "in_progress"):  {"who": {"assignee", "admin"}, "reason": False},
-    ("in_progress", "resolved"): {"who": {"assignee", "admin"}, "reason": False},
-    ("resolved", "closed"):      {"who": {"reporter", "admin"}, "reason": False},
-    ("resolved", "in_progress"): {"who": {"reporter", "admin"}, "reason": True},   # reopen
-    ("open", "closed"):          {"who": {"reporter", "admin"}, "reason": True},   # cancel
+    ("open", "in_progress"):     {"who": {"assignee", "manager", "admin"}, "reason": False},
+    ("in_progress", "blocked"):  {"who": {"assignee", "manager", "admin"}, "reason": True},
+    ("blocked", "in_progress"):  {"who": {"assignee", "manager", "admin"}, "reason": False},
+    ("in_progress", "resolved"): {"who": {"assignee", "manager", "admin"}, "reason": False},
+    ("resolved", "closed"):      {"who": {"reporter", "manager", "admin"}, "reason": False},
+    ("resolved", "in_progress"): {"who": {"reporter", "manager", "admin"}, "reason": True},   # reopen
+    ("open", "closed"):          {"who": {"reporter", "manager", "admin"}, "reason": True},   # cancel
 }
 
 # Database constraint name -> (field, message), so constraint violations become field-level 400s.
 CONSTRAINT_ERRORS = {
     "incidents_building_id_fkey":  ("building_id", "Building does not exist"),
-    "incidents_reporter_id_fkey":  ("reporter_id", "User does not exist"),
     "incidents_floor_in_building": ("floor_id", "Floor does not exist in that building"),
     "incidents_seat_on_floor":     ("seat_id", "Seat does not exist on that floor"),
     "incidents_seat_needs_floor":  ("seat_id", "Choose a floor before choosing a seat"),
@@ -38,26 +38,39 @@ CONSTRAINT_ERRORS = {
 
 
 def list_incidents(req: Request) -> list[dict]:
-    """List incidents; ?user_id= limits to ones that user reported or is assigned to."""
-    # TODO(auth): replace ?user_id= with the logged-in user (mine=true) once auth exists.
-    user_id = req.query.get("user_id")
-    if user_id is not None and not user_id.isdigit():
-        raise BadRequest(details={"user_id": "user_id must be an integer"})
-    return repository.list_incidents(int(user_id) if user_id is not None else None)
+    """Incidents the signed-in user may see, newest first. ?mine=true: only ones they reported or are assigned."""
+    mine = req.query.get("mine", "false")
+    if mine not in ("true", "false"):
+        raise BadRequest(details={"mine": "mine must be true or false"})
+    return repository.list_incidents(visible_to(req.user), req.user["id"] if mine == "true" else None)
+
+
+def visible_to(user: dict) -> dict | None:
+    """
+    Which incidents a user may see, as column -> value conditions (any one matching is enough);
+    None means all. Mirrors _relations(): a user sees an incident when they have any relation to it.
+    """
+    if user["role"] == "admin":
+        return None
+    visible = {"reporter_id": user["id"], "assignee_id": user["id"]}
+    if user["role"] in ("engineer", "manager") and user["team_id"] is not None:
+        visible["team_id"] = user["team_id"]  # the whole team's queue, assigned or not
+    return visible
 
 
 def create_incident(req: Request) -> dict:
     """Validate the body and create an incident with status 'open'."""
     data = req.body
     details = {}
-    title = (data.get("title") or "").strip()
+    title = _text(data.get("title"))
+    description = _text(data.get("description")) or None
     if not title:
         details["title"] = "Title is required"
-    for name in ("category_id", "building_id", "reporter_id"):
-        if not isinstance(data.get(name), int):
+    for name in ("category_id", "building_id"):
+        if not _is_id(data.get(name)):
             details[name] = f"{name} is required and must be an integer"
     for name in ("floor_id", "seat_id"):
-        if data.get(name) is not None and not isinstance(data[name], int):
+        if data.get(name) is not None and not _is_id(data[name]):
             details[name] = f"{name} must be an integer"
     priority = data.get("priority") or "medium"
     if priority not in PRIORITIES:
@@ -65,15 +78,14 @@ def create_incident(req: Request) -> dict:
     if details:
         raise BadRequest(details=details)
 
-    # TODO(auth): take reporter_id from the logged-in user instead of the body.
     fields = {
         "title": title,
-        "description": data.get("description"),
+        "description": description,
         "category_id": data["category_id"],
         "building_id": data["building_id"],
         "floor_id": data.get("floor_id"),
         "seat_id": data.get("seat_id"),
-        "reporter_id": data["reporter_id"],
+        "reporter_id": req.user["id"],  # always the signed-in user; any reporter_id in the body is ignored
         "priority": priority,
     }
     try:
@@ -96,26 +108,19 @@ def change_status(req: Request) -> dict:
     """Move an incident to a new status, set its timestamps, and record it in the audit trail."""
     incident_id = req.params["id"]
     new_status = req.body.get("status")
-    reason = (req.body.get("reason") or "").strip()
-    actor_id = req.body.get("actor_id")  # TODO(auth): use the logged-in user instead of the body.
+    reason = req.body.get("reason")
+    reason = reason.strip() if isinstance(reason, str) else ""
+    actor_id = req.user["id"]
 
-    details = {}
     if new_status not in STATUSES:
-        details["status"] = f"Status must be one of {', '.join(STATUSES)}"
-    if not isinstance(actor_id, int):
-        details["actor_id"] = "actor_id is required and must be an integer"
-    if details:
-        raise BadRequest(details=details)
+        raise BadRequest(details={"status": f"Status must be one of {', '.join(STATUSES)}"})
 
     with transaction():
-        role = repository.get_user_role(actor_id)
-        if role is None:
-            raise BadRequest(details={"actor_id": "actor_id does not exist"})
         incident = repository.lock_incident(incident_id)
         if incident is None:
             raise NotFound("Incident not found")
 
-        relations = _relations(incident, actor_id, role)
+        relations = _relations(incident, req.user)
         if not relations:
             raise NotFound("Incident not found")  # out of scope: don't reveal it exists
 
@@ -155,16 +160,34 @@ def delete_incident(req: Request) -> None:
     raise NotImplementedYet(f"Deleting incident {req.params['id']} is not implemented yet")
 
 
-def _relations(incident: dict, user_id: int, role: str) -> set[str]:
-    """How a user relates to an incident: any of 'admin', 'reporter', 'assignee'."""
+def _relations(incident: dict, user: dict) -> set[str]:
+    """
+    How the signed-in user relates to an incident: any of 'admin', 'manager' (manager of its team),
+    'team' (engineer or manager on its team), 'reporter', 'assignee'. Empty means out of scope (404).
+    """
     relations = set()
-    if role == "admin":
+    if user["role"] == "admin":
         relations.add("admin")
-    if incident["reporter_id"] == user_id:
+    same_team = user["team_id"] is not None and incident["team_id"] == user["team_id"]
+    if same_team and user["role"] in ("engineer", "manager"):
+        relations.add("team")
+        if user["role"] == "manager":
+            relations.add("manager")
+    if incident["reporter_id"] == user["id"]:
         relations.add("reporter")
-    if incident["assignee_id"] == user_id:
+    if incident["assignee_id"] == user["id"]:
         relations.add("assignee")
     return relations
+
+
+def _text(value) -> str:
+    """A trimmed JSON string field; anything else (number, list, null, missing) counts as blank."""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _is_id(value) -> bool:
+    """A positive integer id. (bool is excluded: in Python True is an int.)"""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 def _status_fields(incident: dict, new_status: str, reason: str) -> dict:
