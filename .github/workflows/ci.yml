@@ -34,9 +34,10 @@ jobs:
       - name: Pytest (once backend tests exist)
         run: |
           if compgen -G "backend/*/tests" > /dev/null; then
-            pip install pytest pytest-cov 'psycopg[binary]'
             for tests in backend/*/tests; do
-              (cd "$(dirname "$tests")" && pytest -q)
+              svc="$(dirname "$tests")"
+              pip install -q -r "$svc/requirements.txt" pytest pytest-cov
+              (cd "$svc" && pytest -q --cov=. --cov-report=term)
             done
           else
             echo "No backend tests yet - skipping" >> "$GITHUB_STEP_SUMMARY"
@@ -83,7 +84,7 @@ jobs:
         with:
           node-version: '24'
 
-      - run: npm install
+      - run: npm ci
       - run: npm run lint
       - run: npm test --if-present
       - run: npm run build

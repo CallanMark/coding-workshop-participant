@@ -201,7 +201,7 @@ app/db
 # Node.js
 node_modules/
 npm-debug.log*
-package-lock.json*
+# package-lock.json is committed for reproducible installs (npm ci)
 yarn-debug.log*
 yarn-error.log*
 
@@ -263,6 +263,7 @@ backend/*/*.dist-info/
 backend/*/psycopg/
 backend/*/psycopg_binary/
 backend/*/psycopg_binary.libs/
+backend/*/jwt/
 backend/*/typing_extensions.py
 backend/*/bin/
 

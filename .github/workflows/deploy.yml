@@ -66,7 +66,7 @@ jobs:
         run: ./bin/deploy-backend.sh aws
 
       - name: Install frontend dependencies
-        run: npm install --prefix frontend
+        run: npm ci --prefix frontend
 
       - name: Deploy frontend (build, S3, CloudFront)
         run: ./bin/deploy-frontend.sh aws
