@@ -4,11 +4,11 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
-import { loadSession, saveSession } from '../api/session';
-import AuthProvider from '../context/AuthProvider';
-import LoginPage from '../features/auth/LoginPage';
-import Layout from './Layout';
-import RequireAuth from './RequireAuth';
+import { loadSession, saveSession } from '../../src/api/session';
+import AuthProvider from '../../src/context/AuthProvider';
+import LoginPage from '../../src/features/auth/LoginPage';
+import Layout from '../../src/components/Layout';
+import RequireAuth from '../../src/components/RequireAuth';
 
 const EVE = {
   id: 2, name: 'Eve Employee', email: 'eve@acme.inc', role: 'employee', team_id: null,

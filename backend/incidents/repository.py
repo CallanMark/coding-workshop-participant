@@ -22,15 +22,35 @@ INCIDENT_SELECT = """
 """
 
 
-def list_incidents(user_id: int | None = None) -> list[dict]:
-    """All incidents newest first, or only those `user_id` reported or is assigned to."""
-    if user_id is None:
-        sql = INCIDENT_SELECT + " ORDER BY i.created_at DESC, i.id DESC"
-    else:
-        sql = (INCIDENT_SELECT
-               + " WHERE i.reporter_id = %(user_id)s OR i.assignee_id = %(user_id)s"
-               + " ORDER BY i.created_at DESC, i.id DESC")
-    return get_conn().execute(sql, {"user_id": user_id}).fetchall()
+# Columns a visibility rule may match on (never user input: keys come from service.visible_to).
+SCOPE_COLUMNS = ("reporter_id", "assignee_id", "team_id")
+
+
+def scope_where(visible: dict | None, mine_user_id: int | None) -> tuple[str, dict]:
+    """
+    The WHERE clause and parameters for a list query.
+    `visible`: column -> value, any one matching is enough (None = every incident).
+    `mine_user_id`: also require the user to be the reporter or the assignee.
+    """
+    clauses, params = [], {}
+    if visible is not None:
+        unknown = set(visible) - set(SCOPE_COLUMNS)
+        if unknown:
+            raise ValueError(f"Unknown scope column(s): {sorted(unknown)}")
+        any_of = [f"i.{column} = %(scope_{column})s" for column in visible]
+        clauses.append("(" + " OR ".join(any_of) + ")" if any_of else "FALSE")
+        params.update({f"scope_{column}": value for column, value in visible.items()})
+    if mine_user_id is not None:
+        clauses.append("(i.reporter_id = %(mine)s OR i.assignee_id = %(mine)s)")
+        params["mine"] = mine_user_id
+    return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
+
+
+def list_incidents(visible: dict | None, mine_user_id: int | None = None) -> list[dict]:
+    """Incidents matching the scope (see scope_where), newest first."""
+    where, params = scope_where(visible, mine_user_id)
+    sql = INCIDENT_SELECT + where + " ORDER BY i.created_at DESC, i.id DESC"
+    return get_conn().execute(sql, params).fetchall()
 
 
 def get_incident(incident_id: int) -> dict | None:
@@ -90,9 +110,3 @@ def insert_event(incident_id: int, actor_id: int | None, event_type: str,
         """,
         (incident_id, actor_id, event_type, from_value, to_value, reason),
     )
-
-
-def get_user_role(user_id: int) -> str | None:
-    """A user's role, or None if the user does not exist. (users is owned by auth; read-only here.)"""
-    row = get_conn().execute("SELECT role FROM users WHERE id = %s", (user_id,)).fetchone()
-    return row["role"] if row else None

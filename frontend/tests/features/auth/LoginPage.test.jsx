@@ -4,13 +4,13 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
-import { fetchMe, login } from '../../api/auth';
-import { ApiError } from '../../api/client';
-import { loadSession, saveSession } from '../../api/session';
-import AuthProvider from '../../context/AuthProvider';
-import LoginPage from './LoginPage';
+import { fetchMe, login } from '../../../src/api/auth';
+import { ApiError } from '../../../src/api/client';
+import { loadSession, saveSession } from '../../../src/api/session';
+import AuthProvider from '../../../src/context/AuthProvider';
+import LoginPage from '../../../src/features/auth/LoginPage';
 
-vi.mock('../../api/auth', () => ({ login: vi.fn(), fetchMe: vi.fn() }));
+vi.mock('../../../src/api/auth', () => ({ login: vi.fn(), fetchMe: vi.fn() }));
 
 const EVE = {
   id: 2, name: 'Eve Employee', email: 'eve@acme.inc', role: 'employee', team_id: null,

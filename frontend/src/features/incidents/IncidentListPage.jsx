@@ -18,6 +18,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { listIncidents } from '../../api/incidents';
+import { useAuth } from '../../context/auth';
 import { PriorityChip, StatusChip } from '../../components/IncidentChips';
 
 /**
@@ -134,10 +135,20 @@ IncidentCards.propTypes = {
   incidents: PropTypes.arrayOf(incidentShape).isRequired,
 };
 
+// What the server-scoped list contains for each role (see backend incidents service.visible_to).
+const LIST_TITLES = {
+  admin: 'All incidents',
+  manager: 'Team incidents',
+  engineer: 'Team incidents',
+  employee: 'My reported incidents',
+};
+
 /**
  * Incidents list page: handles loading, error (with retry), empty and data states.
+ * The server decides which incidents the signed-in user may see; the title says which.
  */
 export default function IncidentListPage() {
+  const { user } = useAuth();
   const isPhone = useMediaQuery({ maxWidth: 899 });
   const location = useLocation();
   const createdTitle = location.state?.createdTitle;
@@ -194,7 +205,7 @@ export default function IncidentListPage() {
   return (
     <>
       <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h5" component="h1">All incidents</Typography>
+        <Typography variant="h5" component="h1">{LIST_TITLES[user.role] || 'Incidents'}</Typography>
         <Button variant="contained" component={RouterLink} to="/incidents/new">
           Report incident
         </Button>

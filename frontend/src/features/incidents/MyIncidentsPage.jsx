@@ -39,7 +39,7 @@ function IncidentBoard({ user }) {
 
   useEffect(() => {
     let ignore = false;
-    listIncidents({ userId: user.id })
+    listIncidents({ mine: true })
       .then((incidents) => {
         if (!ignore) setState({ status: 'success', incidents, error: null });
       })
@@ -67,7 +67,7 @@ function IncidentBoard({ user }) {
   const moveIncident = async (incident, to, reason) => {
     replaceIncident({ ...incident, status: to });
     try {
-      const updated = await changeIncidentStatus(incident.id, { status: to, reason, actorId: user.id });
+      const updated = await changeIncidentStatus(incident.id, { status: to, reason });
       replaceIncident(updated);
       setToast({ severity: 'success', message: `#${incident.id} moved to ${STATUSES[to].label}` });
     } catch (error) {

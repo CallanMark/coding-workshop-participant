@@ -1,8 +1,8 @@
 import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
-import { ApiError, apiRequest, setSessionExpiredHandler } from './client';
-import { loadSession, saveSession } from './session';
+import { ApiError, apiRequest, setSessionExpiredHandler } from '../../src/api/client';
+import { loadSession, saveSession } from '../../src/api/session';
 
 /** A minimal fetch Response. */
 function reply(status, body) {
