@@ -1,5 +1,6 @@
 /**
- * Team dashboard (/dashboard), the landing page for engineers, managers and admins.
+ * Team dashboard (/dashboard), the landing page for engineers, managers and admins, titled by the team
+ * (e.g. "Workplace Technology dashboard").
  * - Engineers and managers see their own team. Engineers also get a link to their own dashboard.
  * - Managers and admins also see the team's workload, with links to each engineer's dashboard.
  * - Admins pick the team (?team=, default the first) and also see location hotspots.
@@ -33,7 +34,7 @@ function TeamDashboard({ teamId, days, teamPicker }) {
     <Stack spacing={2}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
         <Typography variant="h5" component="h1" sx={{ flexGrow: 1 }}>
-          Team dashboard{name && `: ${name}`}
+          {name ? `${name} dashboard` : 'Team dashboard'}
         </Typography>
         {teamPicker}
         {hasRole(user, 'engineer') && (

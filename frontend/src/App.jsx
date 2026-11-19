@@ -4,6 +4,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Typography from '@mui/material/Typography';
 import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
+import { AREA_ROLES } from './context/auth';
 import LoginPage from './features/auth/LoginPage';
 import FacilitiesAdminPage from './features/facilities/FacilitiesAdminPage';
 import IncidentCreatePage from './features/incidents/IncidentCreatePage';
@@ -33,14 +34,14 @@ export default function App() {
           <Route path="incidents/new" element={<IncidentCreatePage />} />
           <Route path="incidents/:id" element={<IncidentDetailPage />} />
           <Route path="incidents/:id/summary" element={<IncidentSummaryPage />} />
-          <Route element={<RequireAuth roles={['engineer', 'manager', 'admin']} />}>
+          <Route element={<RequireAuth roles={AREA_ROLES['/dashboard']} />}>
             <Route path="dashboard" element={<Suspense fallback={loading}><TeamDashboardPage /></Suspense>} />
             <Route
               path="dashboard/engineers/:id"
               element={<Suspense fallback={loading}><EngineerDashboardPage /></Suspense>}
             />
           </Route>
-          <Route element={<RequireAuth roles={['admin']} />}>
+          <Route element={<RequireAuth roles={AREA_ROLES['/admin']} />}>
             <Route path="admin/facilities" element={<FacilitiesAdminPage />} />
           </Route>
           <Route path="*" element={<Typography>Page not found.</Typography>} />

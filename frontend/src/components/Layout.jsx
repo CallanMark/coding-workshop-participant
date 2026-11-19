@@ -5,17 +5,15 @@ import Container from '@mui/material/Container';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { hasRole, useAuth } from '../context/auth';
-
-const STAFF = ['engineer', 'manager', 'admin'];
+import { AREA_ROLES, hasRole, useAuth } from '../context/auth';
 
 // `to` may depend on the user (e.g. their own dashboard).
 const NAV_LINKS = [
-  { to: '/dashboard', label: 'Dashboard', roles: STAFF, end: true },
+  { to: '/dashboard', label: 'Dashboard', roles: AREA_ROLES['/dashboard'], end: true },
   { to: (user) => `/dashboard/engineers/${user.id}`, label: 'My dashboard', roles: ['engineer'] },
   { to: '/incidents/mine', label: 'My incidents' },
   { to: '/incidents', label: 'Incidents', end: true },
-  { to: '/admin/facilities', label: 'Facilities', roles: ['admin'] },
+  { to: '/admin/facilities', label: 'Facilities', roles: AREA_ROLES['/admin'] },
 ];
 
 /**

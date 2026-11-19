@@ -8,7 +8,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { homePath, useAuth } from '../../context/auth';
+import { canOpen, homePath, useAuth } from '../../context/auth';
 
 const PUBLIC_PATHS = ['/', '/login'];
 
@@ -26,13 +26,14 @@ function validate(form) {
 }
 
 /**
- * Where to go after signing in: the page the user was sent here from, or their home page.
+ * Where to go after signing in: the page the user was sent here from if their role may open it
+ * (someone else may have been signed out there), otherwise their home page.
  * @param {object | undefined} from - Location saved by RequireAuth.
  * @param {{role: string}} user - The signed-in user.
  * @returns {string}
  */
 function destination(from, user) {
-  if (!from || PUBLIC_PATHS.includes(from.pathname)) return homePath(user);
+  if (!from || PUBLIC_PATHS.includes(from.pathname) || !canOpen(user, from.pathname)) return homePath(user);
   return `${from.pathname}${from.search || ''}`;
 }
 

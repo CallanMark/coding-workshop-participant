@@ -103,7 +103,9 @@ export default function EngineerDashboardPage() {
             </Stack>
           )}
         </Stack>
-        <Button component={RouterLink} to={teamLink} variant="outlined">Team dashboard</Button>
+        <Button component={RouterLink} to={teamLink} variant="outlined">
+          {engineer ? `${engineer.team_name} dashboard` : 'Team dashboard'}
+        </Button>
         <WindowPicker days={days} onChange={setDays} />
       </Stack>
       <DashboardGrid>
