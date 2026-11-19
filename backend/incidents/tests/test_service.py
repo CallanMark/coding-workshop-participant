@@ -125,6 +125,13 @@ def repo(monkeypatch):
     monkeypatch.setattr(repository, "delete_note", lambda note_id: state["notes"].pop(note_id))
     monkeypatch.setattr(repository, "list_events",
                         lambda i: [e for e in state["events"] if e["incident_id"] == i])
+    state["engineer_calls"] = []
+
+    def list_engineers(team_id):
+        state["engineer_calls"].append(team_id)
+        return [{"id": 4, "name": "Fred Facilities", "team_id": 1}]
+
+    monkeypatch.setattr(repository, "list_engineers", list_engineers)
     monkeypatch.setattr(service, "transaction", nullcontext)
     return state
 
@@ -149,7 +156,7 @@ def call(method, path, user=None, body=None, query=None):
     ("POST", "/10/escalate"), ("POST", "/10/assign"), ("GET", "/duplicates"), ("GET", "/10/summary"),
     ("PUT", "/10/feedback"), ("GET", "/10/feedback"), ("GET", "/engineers/4/feedback"),
     ("GET", "/10/notes"), ("POST", "/10/notes"), ("PUT", "/10/notes/1"), ("DELETE", "/10/notes/1"),
-    ("GET", "/10/events"),
+    ("GET", "/10/events"), ("GET", "/engineers"),
 ])
 def test_every_route_needs_a_token(repo, method, path):
     assert call(method, path)[0] == 401
@@ -826,3 +833,32 @@ def test_events_for_anyone_in_scope(repo):
     repo["events"].append({"incident_id": 10, "type": "created"})
     assert call("GET", "/10/events", FRED) == (200, [{"incident_id": 10, "type": "created"}])
     assert call("GET", "/10/events", SAM)[0] == 404
+
+
+# --- engineers (assign dropdown) ------------------------------------------------------
+
+def test_manager_lists_their_own_team(repo):
+    assert call("GET", "/engineers", PAT) == (200, [{"id": 4, "name": "Fred Facilities", "team_id": 1}])
+    assert call("GET", "/engineers", PAT, query={"team_id": "1"})[0] == 200
+    assert repo["engineer_calls"] == [1, 1]
+
+
+def test_manager_cannot_list_another_team(repo):
+    assert call("GET", "/engineers", PAT, query={"team_id": "2"})[0] == 404
+    assert repo["engineer_calls"] == []
+
+
+@pytest.mark.parametrize("query,team_id", [(None, None), ({"team_id": "2"}, 2), ({"team_id": ""}, None)])
+def test_admin_lists_everyone_or_one_team(repo, query, team_id):
+    assert call("GET", "/engineers", ADMIN, query=query)[0] == 200
+    assert repo["engineer_calls"] == [team_id]
+
+
+@pytest.mark.parametrize("user", [EVE, FRED], ids=["employee", "engineer"])
+def test_only_managers_and_admins_list_engineers(repo, user):
+    assert call("GET", "/engineers", user)[0] == 403
+
+
+@pytest.mark.parametrize("value", ["x", "0", "-1"])
+def test_bad_team_id_is_400(repo, value):
+    assert call("GET", "/engineers", ADMIN, query={"team_id": value})[0] == 400
