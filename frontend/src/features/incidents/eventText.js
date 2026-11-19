@@ -30,3 +30,32 @@ export function describeEvent(event) {
       return `${who}: ${event.event_type}`;
   }
 }
+
+/**
+ * A timeline timestamp: bold part (24h time and weekday) and the short date, in UK style.
+ * @param {string} value - ISO timestamp.
+ * @returns {{when: string, date: string}} e.g. { when: '14:05 Monday', date: '19/10' }
+ */
+export function formatWhen(value) {
+  const at = new Date(value);
+  const time = at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const day = at.toLocaleDateString('en-GB', { weekday: 'long' });
+  const date = at.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+  return { when: `${time} ${day}`, date };
+}
+
+/**
+ * The colour of an event's dot on the timeline (a theme palette name).
+ * @param {object} event
+ * @returns {string}
+ */
+export function eventColor(event) {
+  switch (event.event_type) {
+    case 'created': return 'info';
+    case 'status_changed': return STATUSES[event.to_value]?.color === 'default' ? 'grey' : STATUSES[event.to_value]?.color || 'grey';
+    case 'assigned': return 'primary';
+    case 'escalated': return event.to_value === 'true' ? 'error' : 'success';
+    case 'priority_changed': return 'warning';
+    default: return 'secondary';
+  }
+}

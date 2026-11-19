@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
@@ -6,48 +6,81 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
+import ListItemText from '@mui/material/ListItemText';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import { listEngineers } from '../../api/incidents';
 import { PRIORITIES } from '../../constants';
 
 /**
- * Assign an engineer by id (team manager or admin). The server checks they are an active, available
- * engineer on the incident's team and names the problem otherwise.
- * TODO: pick from a list of the team's engineers once a people endpoint exists.
- * Mount only while open so the form starts fresh.
+ * Assign an engineer from the incident's team (team manager or admin). Unavailable engineers are listed
+ * but can't be picked; each shows how many active incidents they already hold. The server re-checks.
+ * Mount only while open so the choice starts fresh.
  * @param {{incident: object, error?: string, onCancel: function(): void, onConfirm: function(number|null): void}} props
  */
 export function AssignDialog({ incident, error = '', onCancel, onConfirm }) {
-  const [value, setValue] = useState(incident.assignee_id ? String(incident.assignee_id) : '');
-  const valid = /^[1-9]\d*$/.test(value);
+  const [engineers, setEngineers] = useState({ status: 'loading', list: [], error: '' });
+  const [choice, setChoice] = useState(incident.assignee_id ? String(incident.assignee_id) : '');
+
+  useEffect(() => {
+    let ignore = false;
+    listEngineers(incident.team_id)
+      .then((list) => { if (!ignore) setEngineers({ status: 'ready', list, error: '' }); })
+      .catch((err) => { if (!ignore) setEngineers({ status: 'error', list: [], error: err.message }); });
+    return () => {
+      ignore = true;
+    };
+  }, [incident.team_id]);
+
   const submit = (event) => {
     event.preventDefault();
-    if (valid) onConfirm(Number(value));
+    if (choice) onConfirm(Number(choice));
   };
+
+  let helper = error || `Engineers on ${incident.team_name}.`;
+  if (engineers.status === 'error') helper = engineers.error;
+  if (engineers.status === 'ready' && engineers.list.length === 0) helper = `${incident.team_name} has no active engineers.`;
+
   return (
     <Dialog open onClose={onCancel} fullWidth maxWidth="xs">
       <form onSubmit={submit} noValidate>
         <DialogTitle>Assign #{incident.id}</DialogTitle>
         <DialogContent>
           <TextField
+            select
             autoFocus
             fullWidth
             margin="dense"
-            label="Engineer ID"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            error={Boolean(error)}
-            helperText={error || `An available engineer on ${incident.team_name}.`}
-            slotProps={{ htmlInput: { inputMode: 'numeric' } }}
-          />
+            label="Engineer"
+            value={engineers.status === 'ready' ? choice : ''}
+            onChange={(e) => setChoice(e.target.value)}
+            disabled={engineers.status !== 'ready' || engineers.list.length === 0}
+            error={Boolean(error) || engineers.status === 'error'}
+            helperText={engineers.status === 'loading' ? 'Loading engineers…' : helper}
+          >
+            {engineers.list.map((engineer) => (
+              <MenuItem key={engineer.id} value={String(engineer.id)} disabled={!engineer.is_available}>
+                <ListItemText
+                  primary={engineer.name}
+                  secondary={`${engineer.is_available ? 'Available' : 'Unavailable'} · ${engineer.open_incidents} open`}
+                />
+              </MenuItem>
+            ))}
+          </TextField>
         </DialogContent>
         <DialogActions>
           {incident.assignee_id && incident.status === 'open' && (
             <Button color="warning" onClick={() => onConfirm(null)} sx={{ mr: 'auto' }}>Unassign</Button>
           )}
           <Button onClick={onCancel}>Cancel</Button>
-          <Button type="submit" variant="contained" disabled={!valid}>Assign</Button>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={!choice || choice === String(incident.assignee_id ?? '')}
+          >
+            Assign
+          </Button>
         </DialogActions>
       </form>
     </Dialog>
