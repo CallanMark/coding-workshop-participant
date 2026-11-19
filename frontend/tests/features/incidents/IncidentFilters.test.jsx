@@ -8,6 +8,10 @@ import { listIncidents } from '../../../src/api/incidents';
 import { AuthContext } from '../../../src/context/auth';
 import IncidentListPage from '../../../src/features/incidents/IncidentListPage';
 import { readFilters, toApiFilters } from '../../../src/features/incidents/incidentFilters';
+import { pick } from '../../facilitiesMock';
+
+// vi.mock is hoisted above imports, so the factory loads the helper itself.
+vi.mock('../../../src/api/facilities', async () => (await import('../../facilitiesMock')).facilitiesMock());
 
 vi.mock('../../../src/api/incidents', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -47,7 +51,7 @@ async function choose(label, option) {
 describe('filter helpers', () => {
   it('reads every filter from the URL, blank when unset', () => {
     expect(readFilters(new URLSearchParams('status=open&q=wifi'))).toEqual({
-      status: 'open', priority: '', assignee: '', escalated: '', q: 'wifi',
+      status: 'open', priority: '', category: '', building: '', assignee: '', escalated: '', q: 'wifi',
     });
   });
 
@@ -86,6 +90,15 @@ describe('incidents list filters', () => {
     await waitFor(() => expect(listIncidents).toHaveBeenLastCalledWith({ q: 'wifi' }));
     expect(listIncidents).toHaveBeenCalledTimes(2); // the first load, then one search, not one per letter
     expect(url()).toBe('?q=wifi');
+  });
+
+  it('filters by category and building by name, sending their ids', async () => {
+    renderList(FRED);
+    await screen.findByText('Air con not working');
+    await pick(/Category/, /IT Hardware/);
+    await pick(/Building/, 'Riverside Annex');
+    await waitFor(() => expect(listIncidents).toHaveBeenLastCalledWith({ category_id: '4', building_id: '2' }));
+    expect(url()).toBe('?category=4&building=2');
   });
 
   it('escalated only is a switch', async () => {
