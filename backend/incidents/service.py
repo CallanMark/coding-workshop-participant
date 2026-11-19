@@ -17,6 +17,8 @@ STATUSES = ("open", "in_progress", "blocked", "resolved", "closed")
 MAX_TITLE = 200
 MAX_QUERY = 100
 MAX_DUPLICATES = 5
+MAX_COMMENT = 1000
+FEEDBACK_STATUSES = ("resolved", "closed")  # feedback is about completed work
 
 # The single source of truth for the incident workflow.
 # (from, to) -> who may make the move, and whether a reason is required.
@@ -210,6 +212,76 @@ def _visible_relations(incident: dict | None, user: dict) -> set[str]:
     if not relations:
         raise NotFound("Incident not found")  # out of scope: don't reveal that it exists
     return relations
+
+
+def save_feedback(req: Request) -> dict:
+    """
+    The reporter's private feedback on the engineer who completed the incident: rating 1-5 and an optional
+    comment. Once resolved or closed; one per incident, editable until the incident is closed.
+    Never shown to the engineer, and no incident event is written (the engineer can see events).
+    """
+    incident_id = req.params["id"]
+    rating = req.body.get("rating")
+    comment = _text(req.body.get("comment")) or None
+    details = {}
+    if not (isinstance(rating, int) and not isinstance(rating, bool) and 1 <= rating <= 5):
+        details["rating"] = "Rating must be a whole number from 1 to 5"
+    if comment and len(comment) > MAX_COMMENT:
+        details["comment"] = f"Comment must be at most {MAX_COMMENT} characters"
+    if details:
+        raise BadRequest(details=details)
+
+    with transaction():
+        incident = repository.lock_incident(incident_id)
+        relations = _visible_relations(incident, req.user)
+        if "reporter" not in relations:
+            raise Forbidden("Only the person who reported the incident can give feedback")
+        if incident["status"] not in FEEDBACK_STATUSES:
+            raise Conflict("Feedback can be given once the incident is resolved")
+        if incident["assignee_id"] is None:
+            raise Conflict("No engineer worked on this incident")
+        if incident["assignee_id"] == req.user["id"]:
+            raise Conflict("You cannot give feedback on your own work")
+        if incident["status"] == "closed" and repository.get_feedback(incident_id) is not None:
+            raise Conflict("Feedback cannot be changed once the incident is closed")
+        repository.save_feedback(incident_id, req.user["id"], incident["assignee_id"], rating, comment)
+    return repository.get_feedback(incident_id)
+
+
+def get_feedback(req: Request) -> dict | None:
+    """
+    An incident's feedback (null if none yet), for the reporter, the engineer's manager or an admin.
+    Anyone else who can see the incident, including the engineer, gets 403.
+    """
+    incident = repository.get_incident(req.params["id"])
+    relations = _visible_relations(incident, req.user)
+    feedback = repository.get_feedback(req.params["id"])
+    # Before any feedback exists the engineer's manager is the manager of the incident's team.
+    engineer_team = feedback["engineer_team_id"] if feedback else incident["team_id"]
+    is_their_manager = req.user["role"] == "manager" and req.user["team_id"] == engineer_team
+    if not (relations & {"reporter", "admin"} or is_their_manager):
+        raise Forbidden("Only the reporter, the engineer's manager or an admin can see feedback")
+    return feedback
+
+
+def engineer_feedback(req: Request) -> dict:
+    """
+    All feedback on one engineer's work with their average rating: for their team's manager or an admin
+    (route allows only those roles). An engineer outside the manager's team is 404.
+    """
+    engineer = repository.get_user(req.params["id"])
+    if engineer is None or engineer["role"] != "engineer":
+        raise NotFound("Engineer not found")
+    if req.user["role"] == "manager" and req.user["team_id"] != engineer["team_id"]:
+        raise NotFound("Engineer not found")
+    feedback = repository.list_engineer_feedback(engineer["id"])
+    ratings = [item["rating"] for item in feedback]
+    return {
+        "engineer": {key: engineer[key] for key in ("id", "name", "team_id", "team_name")},
+        "count": len(ratings),
+        "average_rating": round(sum(ratings) / len(ratings), 1) if ratings else None,
+        "feedback": feedback,
+    }
 
 
 def _relations(incident: dict, user: dict) -> set[str]:

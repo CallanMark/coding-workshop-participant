@@ -28,4 +28,10 @@ ROUTES = [
     Route("POST", "/{id}/status", service.change_status),
     # Reporter requests; team manager or admin clears. TODO: stub, returns 501.
     Route("POST", "/{id}/escalate", service.escalate_incident),
+    # Reporter only, once resolved or closed. Private: never shown to the engineer.
+    Route("PUT", "/{id}/feedback", service.save_feedback),
+    # Reporter, the engineer's manager or admin (403 for anyone else, including the engineer).
+    Route("GET", "/{id}/feedback", service.get_feedback),
+    # The engineer's team manager or admin: all feedback on their work and the average rating.
+    Route("GET", "/engineers/{id}/feedback", service.engineer_feedback, roles=("manager", "admin")),
 ]

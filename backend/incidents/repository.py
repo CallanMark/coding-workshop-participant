@@ -190,3 +190,61 @@ def insert_event(incident_id: int, actor_id: int | None, event_type: str,
         """,
         (incident_id, actor_id, event_type, from_value, to_value, reason),
     )
+
+
+# --- reporter feedback (private: never joined into INCIDENT_SELECT) ----------------
+
+FEEDBACK_SELECT = """
+    SELECT fb.id, fb.incident_id, fb.reporter_id, fb.engineer_id, fb.rating, fb.comment,
+           fb.created_at, fb.updated_at,
+           e.name AS engineer_name, e.team_id AS engineer_team_id, r.name AS reporter_name
+    FROM incident_feedback fb
+    JOIN users e ON e.id = fb.engineer_id
+    JOIN users r ON r.id = fb.reporter_id
+"""
+
+
+def get_feedback(incident_id: int) -> dict | None:
+    """The feedback on an incident, with the engineer's team (to find their manager), or None."""
+    return get_conn().execute(FEEDBACK_SELECT + " WHERE fb.incident_id = %s", (incident_id,)).fetchone()
+
+
+def save_feedback(incident_id: int, reporter_id: int, engineer_id: int, rating: int, comment: str | None) -> None:
+    """Create the incident's feedback, or replace it (one per incident)."""
+    get_conn().execute(
+        """
+        INSERT INTO incident_feedback (incident_id, reporter_id, engineer_id, rating, comment)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (incident_id) DO UPDATE
+        SET engineer_id = EXCLUDED.engineer_id, rating = EXCLUDED.rating,
+            comment = EXCLUDED.comment, updated_at = now()
+        """,
+        (incident_id, reporter_id, engineer_id, rating, comment),
+    )
+
+
+def get_user(user_id: int) -> dict | None:
+    """A user's id, name, role and team, or None."""
+    return get_conn().execute(
+        """
+        SELECT u.id, u.name, u.role, u.team_id, t.name AS team_name
+        FROM users u LEFT JOIN teams t ON t.id = u.team_id
+        WHERE u.id = %s
+        """,
+        (user_id,),
+    ).fetchone()
+
+
+def list_engineer_feedback(engineer_id: int) -> list[dict]:
+    """All feedback on an engineer's work, with the incident title, newest first."""
+    query = """
+        SELECT fb.incident_id, i.title AS incident_title, fb.rating, fb.comment,
+               r.name AS reporter_name, fb.created_at, fb.updated_at
+        FROM incident_feedback fb
+        JOIN incidents i ON i.id = fb.incident_id
+        JOIN users r     ON r.id = fb.reporter_id
+        WHERE fb.engineer_id = %s
+        ORDER BY fb.created_at DESC, fb.id DESC
+    """
+    return get_conn().execute(query, (engineer_id,)).fetchall()
+

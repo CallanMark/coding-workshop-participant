@@ -86,6 +86,25 @@ def repo(monkeypatch):
     monkeypatch.setattr(repository, "find_duplicates", find_duplicates)
     monkeypatch.setattr(repository, "get_duplicate", get_duplicate)
     monkeypatch.setattr(repository, "get_category_team", {1: 1, 4: 2}.get)
+    state["feedback"] = {}
+    users = {u["id"]: {**u, "name": f"User {u['id']}", "team_name": None} for u in
+             (ADMIN, EVE, SAM, FRED, TINA, MORGAN, PAT, FRED_TEAMMATE)}
+
+    def get_feedback(incident_id):
+        row = state["feedback"].get(incident_id)
+        return {**row, "engineer_team_id": users[row["engineer_id"]]["team_id"]} if row else None
+
+    def save_feedback(incident_id, reporter_id, engineer_id, rating, comment):
+        state["feedback"][incident_id] = {"incident_id": incident_id, "reporter_id": reporter_id,
+                                          "engineer_id": engineer_id, "rating": rating, "comment": comment}
+
+    def list_engineer_feedback(engineer_id):
+        return [row for row in state["feedback"].values() if row["engineer_id"] == engineer_id]
+
+    monkeypatch.setattr(repository, "get_feedback", get_feedback)
+    monkeypatch.setattr(repository, "save_feedback", save_feedback)
+    monkeypatch.setattr(repository, "get_user", users.get)
+    monkeypatch.setattr(repository, "list_engineer_feedback", list_engineer_feedback)
     monkeypatch.setattr(service, "transaction", nullcontext)
     return state
 
@@ -108,6 +127,7 @@ def call(method, path, user=None, body=None, query=None):
 @pytest.mark.parametrize("method,path", [
     ("GET", "/"), ("GET", "/10"), ("POST", "/"), ("PUT", "/10"), ("DELETE", "/10"), ("POST", "/10/status"),
     ("POST", "/10/escalate"), ("GET", "/duplicates"), ("GET", "/10/summary"),
+    ("PUT", "/10/feedback"), ("GET", "/10/feedback"), ("GET", "/engineers/4/feedback"),
 ])
 def test_every_route_needs_a_token(repo, method, path):
     assert call(method, path)[0] == 401
@@ -426,3 +446,122 @@ def test_summary_only_for_a_matching_duplicate(repo):
     match = {"category_id": "1", "building_id": "1", "floor_id": "1"}
     assert call("GET", "/1/summary", SAM, query=match)[0] == 200
     assert call("GET", "/1/summary", SAM, query={**match, "category_id": "2"})[0] == 404
+
+
+# --- reporter feedback (private from the engineer) ----------------------------------
+
+def given_feedback(repo, rating=4, status="resolved"):
+    """Incident #10 (Facilities, reported by Eve, completed by Fred) with Eve's feedback on it."""
+    repo["incidents"][10] = incident(status=status)
+    repo["feedback"][10] = {"incident_id": 10, "reporter_id": EVE["id"], "engineer_id": FRED["id"],
+                            "rating": rating, "comment": "Quick fix"}
+
+
+@pytest.mark.parametrize("status_", ["resolved", "closed"])
+def test_reporter_gives_feedback_on_completed_work(repo, status_):
+    repo["incidents"][10] = incident(status=status_)
+    status, body = call("PUT", "/10/feedback", EVE, {"rating": 5, "comment": "  Great  "})
+    assert status == 200
+    assert (body["rating"], body["comment"], body["engineer_id"]) == (5, "Great", FRED["id"])
+    assert repo["events"] == []  # the engineer can read events, so feedback writes none
+
+
+def test_reporter_can_change_feedback_until_closed(repo):
+    given_feedback(repo)
+    assert call("PUT", "/10/feedback", EVE, {"rating": 2})[0] == 200
+    assert repo["feedback"][10]["rating"] == 2
+    repo["incidents"][10]["status"] = "closed"
+    assert call("PUT", "/10/feedback", EVE, {"rating": 5})[0] == 409
+    assert repo["feedback"][10]["rating"] == 2
+
+
+@pytest.mark.parametrize("status_", ["open", "in_progress", "blocked"])
+def test_no_feedback_before_the_work_is_done(repo, status_):
+    repo["incidents"][10] = incident(status=status_)
+    assert call("PUT", "/10/feedback", EVE, {"rating": 5})[0] == 409
+
+
+def test_no_feedback_without_an_engineer(repo):
+    repo["incidents"][10] = incident(status="closed", assignee_id=None)
+    assert call("PUT", "/10/feedback", EVE, {"rating": 5})[0] == 409
+
+
+def test_no_feedback_on_your_own_work(repo):
+    repo["incidents"][10] = incident(status="resolved", reporter_id=FRED["id"], assignee_id=FRED["id"])
+    assert call("PUT", "/10/feedback", FRED, {"rating": 5})[0] == 409
+
+
+@pytest.mark.parametrize("user,expected", [(FRED, 403), (PAT, 403), (ADMIN, 403), (SAM, 404)],
+                         ids=["engineer", "manager", "admin", "out of scope"])
+def test_only_the_reporter_gives_feedback(repo, user, expected):
+    repo["incidents"][10] = incident(status="resolved")
+    assert call("PUT", "/10/feedback", user, {"rating": 5})[0] == expected
+    assert repo["feedback"] == {}
+
+
+@pytest.mark.parametrize("body", [{}, {"rating": 0}, {"rating": 6}, {"rating": 4.5}, {"rating": "5"}, {"rating": True}])
+def test_rating_is_a_whole_number_from_1_to_5(repo, body):
+    repo["incidents"][10] = incident(status="resolved")
+    status, error = call("PUT", "/10/feedback", EVE, body)
+    assert status == 400
+    assert "rating" in error["error"]["details"]
+
+
+def test_comment_length_is_limited(repo):
+    repo["incidents"][10] = incident(status="resolved")
+    status, error = call("PUT", "/10/feedback", EVE, {"rating": 3, "comment": "x" * (service.MAX_COMMENT + 1)})
+    assert status == 400
+    assert "comment" in error["error"]["details"]
+
+
+@pytest.mark.parametrize("user", [EVE, PAT, ADMIN], ids=["reporter", "engineer's manager", "admin"])
+def test_who_reads_feedback(repo, user):
+    given_feedback(repo)
+    status, body = call("GET", "/10/feedback", user)
+    assert status == 200
+    assert body["rating"] == 4
+
+
+@pytest.mark.parametrize("user,expected", [(FRED, 403), (FRED_TEAMMATE, 403), (MORGAN, 404), (SAM, 404)],
+                         ids=["the engineer", "teammate", "other-team manager", "out of scope"])
+def test_feedback_is_hidden_from_everyone_else(repo, user, expected):
+    given_feedback(repo)
+    status, body = call("GET", "/10/feedback", user)
+    assert status == expected
+    assert "Quick fix" not in json.dumps(body)
+
+
+def test_no_feedback_yet_is_null(repo):
+    repo["incidents"][10] = incident(status="resolved")
+    assert call("GET", "/10/feedback", EVE) == (200, None)
+
+
+def test_incident_detail_never_includes_feedback(repo):
+    given_feedback(repo)
+    assert "Quick fix" not in json.dumps(call("GET", "/10", FRED)[1])
+
+
+def test_engineer_feedback_for_their_manager(repo):
+    given_feedback(repo, rating=4)
+    repo["feedback"][11] = {"incident_id": 11, "reporter_id": SAM["id"], "engineer_id": FRED["id"],
+                            "rating": 5, "comment": None}
+    status, body = call("GET", f"/engineers/{FRED['id']}/feedback", PAT)
+    assert status == 200
+    assert (body["engineer"]["id"], body["count"], body["average_rating"]) == (FRED["id"], 2, 4.5)
+
+
+def test_engineer_without_feedback_has_no_average(repo):
+    status, body = call("GET", f"/engineers/{TINA['id']}/feedback", ADMIN)
+    assert status == 200
+    assert (body["count"], body["average_rating"], body["feedback"]) == (0, None, [])
+
+
+@pytest.mark.parametrize("user,engineer_id,expected", [
+    (FRED, FRED["id"], 403),        # engineers can't read their own feedback (route roles)
+    (EVE, FRED["id"], 403),
+    (MORGAN, FRED["id"], 404),      # manager of another team
+    (ADMIN, MORGAN["id"], 404),     # not an engineer
+    (ADMIN, 999, 404),
+])
+def test_engineer_feedback_is_restricted(repo, user, engineer_id, expected):
+    assert call("GET", f"/engineers/{engineer_id}/feedback", user)[0] == expected
