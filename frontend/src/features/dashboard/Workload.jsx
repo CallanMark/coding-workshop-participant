@@ -15,9 +15,10 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { listEngineers } from '../../api/incidents';
+import Loaded from '../../components/Loaded';
 import useApiList from '../../hooks/useApiList';
 import { OTHER, SERIES, share } from './chartColors';
-import { Loaded, Section } from './DashboardParts';
+import { Section } from './DashboardParts';
 import DonutChart, { Swatch } from './DonutChart';
 
 // Engineers come sorted by name, so each keeps their colour as workloads change; past the

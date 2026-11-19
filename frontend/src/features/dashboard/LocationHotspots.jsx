@@ -10,8 +10,9 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { getLocationHotspots } from '../../api/analytics';
+import Loaded from '../../components/Loaded';
 import useApiList from '../../hooks/useApiList';
-import { Loaded, Section } from './DashboardParts';
+import { Section } from './DashboardParts';
 
 const LEVELS = [
   { key: 'buildings', title: 'Buildings', place: (row) => row.name },
