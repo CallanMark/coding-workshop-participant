@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
 import { AREA_ROLES } from './context/auth';
 import LoginPage from './features/auth/LoginPage';
+import EngineersAdminPage from './features/engineers/EngineersAdminPage';
 import FacilitiesAdminPage from './features/facilities/FacilitiesAdminPage';
 import IncidentCreatePage from './features/incidents/IncidentCreatePage';
 import IncidentDetailPage from './features/incidents/IncidentDetailPage';
@@ -43,6 +44,7 @@ export default function App() {
           </Route>
           <Route element={<RequireAuth roles={AREA_ROLES['/admin']} />}>
             <Route path="admin/facilities" element={<FacilitiesAdminPage />} />
+            <Route path="admin/engineers" element={<EngineersAdminPage />} />
           </Route>
           <Route path="*" element={<Typography>Page not found.</Typography>} />
         </Route>
