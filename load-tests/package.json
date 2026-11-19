@@ -1,0 +1,12 @@
+{
+  "name": "acme-load-tests",
+  "private": true,
+  "description": "Artillery load tests for the ACME incidents API. See README.md in this folder.",
+  "scripts": {
+    "read": "artillery run --output results/read.json api-read.yml",
+    "write": "artillery run --output results/write.json api-write.yml"
+  },
+  "devDependencies": {
+    "artillery": "2.0.34"
+  }
+}

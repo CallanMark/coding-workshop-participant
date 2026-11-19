@@ -1,0 +1,64 @@
+# Write load test: employees reporting incidents and adding notes at the same time.
+# LOCAL ONLY: it creates real incidents, so never point it at the cloud demo data.
+# Reset the local database afterwards with ./bin/init-db.sh --reset.
+#
+#   npx artillery run -e local api-write.yml
+config:
+  environments:
+    local:
+      target: http://localhost:3001
+      phases:
+        - { name: warm-up, duration: 20, arrivalRate: 1 }
+        - { name: sustained, duration: 60, arrivalRate: 1 }
+  variables:
+    password: "{{ $env.LOAD_PASSWORD }}"
+    employee: [eve@acme.inc, sam@acme.inc]  # a list: each virtual user gets one at random
+  http:
+    timeout: 30
+  plugins:
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+    ensure: {}
+  ensure:
+    thresholds:
+      - http.response_time.p95: 3000
+    conditions:
+      - expression: vusers.failed / vusers.created < 0.01
+        strict: true
+
+scenarios:
+  - name: Employee reports an incident and adds a note
+    flow:
+      - post:
+          name: sign in
+          url: /api/auth/login
+          json: { email: "{{ employee }}", password: "{{ password }}" }
+          capture: { json: $.token, as: token }
+      - get:
+          name: duplicate check
+          url: /api/incidents/duplicates?category_id=5&building_id=2&floor_id=3
+          headers: { authorization: "Bearer {{ token }}" }
+      - think: 1
+      - post:
+          name: report incident
+          url: /api/incidents
+          headers: { authorization: "Bearer {{ token }}" }
+          json:
+            title: "Load test: Wi-Fi drops {{ $randomString(6) }}"
+            description: Created by the Artillery write test
+            category_id: 5
+            building_id: 2
+            floor_id: 3
+            priority: medium
+          capture: { json: $.id, as: incidentId }
+          expect:
+            - statusCode: 201
+      - post:
+          name: add note
+          url: /api/incidents/{{ incidentId }}/notes
+          headers: { authorization: "Bearer {{ token }}" }
+          json: { body: "Still dropping every few minutes." }
+      - get:
+          name: incident detail
+          url: /api/incidents/{{ incidentId }}
+          headers: { authorization: "Bearer {{ token }}" }

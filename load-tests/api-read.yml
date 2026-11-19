@@ -1,0 +1,143 @@
+# Read-heavy load test: the four personas signing in and using their main screens at once.
+# Safe against any environment: it only reads (plus sign-ins).
+#
+#   npx artillery run -e local api-read.yml                                  # LocalStack via localhost:3001
+#   LOAD_PASSWORD=... npx artillery run -e cloud --target https://<cloudfront> api-read.yml
+#
+# Each virtual user signs in once (a real scrypt password check) and makes 3-4 requests about a second
+# apart, like someone clicking through the app.
+config:
+  environments:
+    # LocalStack runs each concurrent request in its own Docker container, so on a small dev machine it
+    # saturates at a few new users a second (see docs/load-testing.md). Local = a sustainable baseline.
+    local:
+      target: http://localhost:3001
+      phases:
+        - { name: warm-up, duration: 30, arrivalRate: 1 }
+        - { name: sustained, duration: 90, arrivalRate: 1 }
+    # Cloud = the real capacity test: ramps to 10 new users a second (about 30-40 requests a second).
+    cloud:
+      phases:
+        - { name: warm-up, duration: 30, arrivalRate: 1 }
+        - { name: ramp-up, duration: 60, arrivalRate: 1, rampTo: 10 }
+        - { name: sustained, duration: 120, arrivalRate: 10 }
+    # Stress = find the cloud's limit: one-minute steps up to 40 new users a second (about 160 requests a
+    # second). Expect the checks to fail at the top: the point is where latency bends and which errors appear.
+    # Read-only, but don't run it close to a demo.
+    stress:
+      phases:
+        - { name: warm-up, duration: 30, arrivalRate: 2 }
+        - { name: step 5/s, duration: 60, arrivalRate: 5 }
+        - { name: step 10/s, duration: 60, arrivalRate: 10 }
+        - { name: step 20/s, duration: 60, arrivalRate: 20 }
+        - { name: step 40/s, duration: 60, arrivalRate: 40 }
+  variables:
+    password: "{{ $env.LOAD_PASSWORD }}"
+    employee: [eve@acme.inc, sam@acme.inc]  # a list: each virtual user gets one at random
+  http:
+    timeout: 30
+  plugins:
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+    ensure: {}
+  ensure:
+    thresholds:
+      - http.response_time.p95: 3000
+    conditions:
+      - expression: vusers.failed / vusers.created < 0.01
+        strict: true
+
+scenarios:
+  - name: Employee checks their incidents and opens the report form
+    weight: 40
+    flow:
+      - post:
+          name: sign in
+          url: /api/auth/login
+          json: { email: "{{ employee }}", password: "{{ password }}" }
+          capture: { json: $.token, as: token }
+      - get:
+          name: my incidents
+          url: /api/incidents?mine=true
+          headers: { authorization: "Bearer {{ token }}" }
+          capture: { json: "$[0].id", as: incidentId }
+      - think: 1
+      - get:
+          name: incident detail
+          url: /api/incidents/{{ incidentId }}
+          headers: { authorization: "Bearer {{ token }}" }
+      - get:
+          name: incident notes
+          url: /api/incidents/{{ incidentId }}/notes
+          headers: { authorization: "Bearer {{ token }}" }
+      - think: 1
+      - get:
+          name: report form categories
+          url: /api/facilities/categories
+          headers: { authorization: "Bearer {{ token }}" }
+
+  - name: Engineer works their team queue and dashboard
+    weight: 25
+    flow:
+      - post:
+          name: sign in
+          url: /api/auth/login
+          json: { email: tina@acme.inc, password: "{{ password }}" }
+          capture: { json: $.token, as: token }
+      - get:
+          name: team queue (open)
+          url: /api/incidents?status=open
+          headers: { authorization: "Bearer {{ token }}" }
+      - think: 1
+      - get:
+          name: team dashboard
+          url: /api/analytics/teams/2?days=30
+          headers: { authorization: "Bearer {{ token }}" }
+      - get:
+          name: engineer dashboard
+          url: /api/analytics/engineers/5?days=30
+          headers: { authorization: "Bearer {{ token }}" }
+
+  - name: Manager reviews the team and its workload
+    weight: 20
+    flow:
+      - post:
+          name: sign in
+          url: /api/auth/login
+          json: { email: morgan@acme.inc, password: "{{ password }}" }
+          capture: { json: $.token, as: token }
+      - get:
+          name: team dashboard
+          url: /api/analytics/teams/2?days=90
+          headers: { authorization: "Bearer {{ token }}" }
+      - think: 1
+      - get:
+          name: assign list (engineers)
+          url: /api/incidents/engineers
+          headers: { authorization: "Bearer {{ token }}" }
+      - get:
+          name: escalated incidents
+          url: /api/incidents?escalated=true
+          headers: { authorization: "Bearer {{ token }}" }
+
+  - name: Admin checks hotspots, engineers and searches
+    weight: 15
+    flow:
+      - post:
+          name: sign in
+          url: /api/auth/login
+          json: { email: admin@acme.inc, password: "{{ password }}" }
+          capture: { json: $.token, as: token }
+      - get:
+          name: location hotspots
+          url: /api/analytics/locations?days=90
+          headers: { authorization: "Bearer {{ token }}" }
+      - think: 1
+      - get:
+          name: engineer profiles
+          url: /api/auth/engineers
+          headers: { authorization: "Bearer {{ token }}" }
+      - get:
+          name: search incidents
+          url: /api/incidents?q=wifi
+          headers: { authorization: "Bearer {{ token }}" }
