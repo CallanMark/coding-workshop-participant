@@ -125,6 +125,42 @@ BuildingSelect.propTypes = {
   error: PropTypes.string,
 };
 
+// What a dependent select shows before its parent is chosen.
+const NOT_CHOSEN = { status: 'ready', data: [], error: '', retry: () => {} };
+
+/**
+ * Floors of one building; disabled until a building is chosen.
+ * @param {{buildingId: string, value: string, onChange: function(string): void, emptyLabel?: string|null,
+ *   size?: string, required?: boolean, error?: string}} props
+ */
+export function FloorSelect({ buildingId, value, onChange, emptyLabel = null, size = 'medium', required = false, error = '' }) {
+  const floors = useApiList(listFloors, buildingId || null);
+  return (
+    <LoadingSelect
+      label="Floor"
+      value={value}
+      onChange={onChange}
+      list={buildingId ? floors : NOT_CHOSEN}
+      disabled={!buildingId}
+      required={required}
+      error={error}
+      emptyLabel={emptyLabel}
+      size={size}
+      options={floors.data.map((f) => <MenuItem key={f.id} value={String(f.id)}>{f.name}</MenuItem>)}
+    />
+  );
+}
+
+FloorSelect.propTypes = {
+  buildingId: PropTypes.string.isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  emptyLabel: PropTypes.string,
+  size: PropTypes.string,
+  required: PropTypes.bool,
+  error: PropTypes.string,
+};
+
 /**
  * Building → Floor → Seat. Choosing a building loads its floors; choosing a floor loads its seats;
  * changing a level clears the levels below it. Floor and seat are optional.
@@ -133,7 +169,6 @@ BuildingSelect.propTypes = {
  *   errors?: object}} props
  */
 export function LocationFields({ value, onChange, errors = {} }) {
-  const floors = useApiList(listFloors, value.building_id || null);
   const seats = useApiList(listSeats, value.floor_id || null);
   return (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -143,21 +178,18 @@ export function LocationFields({ value, onChange, errors = {} }) {
         required
         error={errors.building_id}
       />
-      <LoadingSelect
-        label="Floor"
+      <FloorSelect
+        buildingId={value.building_id}
         value={value.floor_id}
         onChange={(id) => onChange({ ...value, floor_id: id, seat_id: '' })}
-        list={value.building_id ? floors : { status: 'ready', data: [], error: '', retry: () => {} }}
-        disabled={!value.building_id}
         error={errors.floor_id}
         emptyLabel="No particular floor"
-        options={floors.data.map((f) => <MenuItem key={f.id} value={String(f.id)}>{f.name}</MenuItem>)}
       />
       <LoadingSelect
         label="Seat"
         value={value.seat_id}
         onChange={(id) => onChange({ ...value, seat_id: id })}
-        list={value.floor_id ? seats : { status: 'ready', data: [], error: '', retry: () => {} }}
+        list={value.floor_id ? seats : NOT_CHOSEN}
         disabled={!value.floor_id}
         error={errors.seat_id}
         emptyLabel="No particular seat"

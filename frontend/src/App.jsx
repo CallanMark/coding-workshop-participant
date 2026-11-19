@@ -3,6 +3,7 @@ import Typography from '@mui/material/Typography';
 import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
 import LoginPage from './features/auth/LoginPage';
+import FacilitiesAdminPage from './features/facilities/FacilitiesAdminPage';
 import IncidentCreatePage from './features/incidents/IncidentCreatePage';
 import IncidentDetailPage from './features/incidents/IncidentDetailPage';
 import IncidentListPage from './features/incidents/IncidentListPage';
@@ -10,7 +11,8 @@ import IncidentSummaryPage from './features/incidents/IncidentSummaryPage';
 import MyIncidentsPage from './features/incidents/MyIncidentsPage';
 
 /**
- * App routes. / and /login are the sign-in page; everything else needs a signed-in user.
+ * App routes. / and /login are the sign-in page; everything else needs a signed-in user,
+ * and /admin/* needs an admin.
  */
 export default function App() {
   return (
@@ -24,6 +26,9 @@ export default function App() {
           <Route path="incidents/new" element={<IncidentCreatePage />} />
           <Route path="incidents/:id" element={<IncidentDetailPage />} />
           <Route path="incidents/:id/summary" element={<IncidentSummaryPage />} />
+          <Route element={<RequireAuth roles={['admin']} />}>
+            <Route path="admin/facilities" element={<FacilitiesAdminPage />} />
+          </Route>
           <Route path="*" element={<Typography>Page not found.</Typography>} />
         </Route>
       </Route>
