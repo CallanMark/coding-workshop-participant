@@ -18,6 +18,7 @@ MAX_TITLE = 200
 MAX_QUERY = 100
 MAX_DUPLICATES = 5
 MAX_COMMENT = 1000
+MAX_NOTE = 2000
 FEEDBACK_STATUSES = ("resolved", "closed")  # feedback is about completed work
 ACTIVE_STATUSES = ("open", "in_progress", "blocked")  # work still to do
 
@@ -288,6 +289,74 @@ def _visible_relations(incident: dict | None, user: dict) -> set[str]:
     return relations
 
 
+def list_notes(req: Request) -> list[dict]:
+    """An incident's notes, oldest first: anyone who can see the incident."""
+    _visible_relations(repository.get_incident(req.params["id"]), req.user)
+    return repository.list_notes(req.params["id"])
+
+
+def add_note(req: Request) -> dict:
+    """
+    Add a note: anyone who can see the incident, until it is closed. The first note from the assignee or the
+    team acknowledges the incident (the reporter is told someone is on it).
+    """
+    incident_id = req.params["id"]
+    body = _note_body(req.body)
+    with transaction():
+        incident = repository.lock_incident(incident_id)
+        relations = _visible_relations(incident, req.user)
+        if incident["status"] == "closed":
+            raise Conflict("Notes cannot be added to a closed incident")
+        note_id = repository.insert_note(incident_id, req.user["id"], body)
+        now = datetime.now(UTC)
+        changes = {"updated_at": now}
+        if relations & {"assignee", "team"} and incident["acknowledged_at"] is None:
+            changes["acknowledged_at"] = now
+        repository.update_incident(incident_id, changes)
+    return repository.get_note(incident_id, note_id)
+
+
+def edit_note(req: Request) -> dict:
+    """Change a note's text: its author only, until the incident is closed."""
+    incident_id, note_id = req.params["id"], req.params["note_id"]
+    body = _note_body(req.body)
+    with transaction():
+        incident = repository.lock_incident(incident_id)
+        _visible_relations(incident, req.user)
+        note = repository.get_note(incident_id, note_id)
+        if note is None:
+            raise NotFound("Note not found")
+        if note["author_id"] != req.user["id"]:
+            raise Forbidden("Only the author can edit a note")
+        if incident["status"] == "closed":
+            raise Conflict("Notes on a closed incident cannot be changed")
+        repository.update_note(note_id, body)
+    return repository.get_note(incident_id, note_id)
+
+
+def delete_note(req: Request) -> None:
+    """Delete a note: its author (until the incident is closed) or an admin."""
+    incident_id, note_id = req.params["id"], req.params["note_id"]
+    with transaction():
+        incident = repository.lock_incident(incident_id)
+        relations = _visible_relations(incident, req.user)
+        note = repository.get_note(incident_id, note_id)
+        if note is None:
+            raise NotFound("Note not found")
+        if "admin" not in relations:
+            if note["author_id"] != req.user["id"]:
+                raise Forbidden("Only the author or an admin can delete a note")
+            if incident["status"] == "closed":
+                raise Conflict("Notes on a closed incident cannot be changed")
+        repository.delete_note(note_id)
+
+
+def list_events(req: Request) -> list[dict]:
+    """An incident's audit trail, oldest first: anyone who can see the incident. (Feedback is never in it.)"""
+    _visible_relations(repository.get_incident(req.params["id"]), req.user)
+    return repository.list_events(req.params["id"])
+
+
 def save_feedback(req: Request) -> dict:
     """
     The reporter's private feedback on the engineer who completed the incident: rating 1-5 and an optional
@@ -473,6 +542,16 @@ def _duplicate_location(query: dict) -> dict:
     if details:
         raise BadRequest(details=details)
     return location
+
+
+def _note_body(data: dict) -> str:
+    """A note's text from the request body (400 if blank or too long)."""
+    body = _text(data.get("body"))
+    if not body:
+        raise BadRequest(details={"body": "Write something in the note"})
+    if len(body) > MAX_NOTE:
+        raise BadRequest(details={"body": f"A note must be at most {MAX_NOTE} characters"})
+    return body
 
 
 def _check_assignee(user: dict | None, team_id: int) -> None:

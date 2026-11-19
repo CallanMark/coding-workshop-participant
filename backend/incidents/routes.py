@@ -30,6 +30,14 @@ ROUTES = [
     Route("POST", "/{id}/assign", service.assign_incident, roles=("engineer", "manager", "admin")),
     # Reporter, assignee, team manager or admin escalates; team manager or admin clears.
     Route("POST", "/{id}/escalate", service.escalate_incident),
+    # Notes: anyone who can see the incident reads and adds (not once closed); the author edits;
+    # the author or an admin deletes.
+    Route("GET", "/{id}/notes", service.list_notes),
+    Route("POST", "/{id}/notes", service.add_note, status=201),
+    Route("PUT", "/{id}/notes/{note_id}", service.edit_note),
+    Route("DELETE", "/{id}/notes/{note_id}", service.delete_note, status=204),
+    # The audit trail: anyone who can see the incident.
+    Route("GET", "/{id}/events", service.list_events),
     # Reporter only, once resolved or closed. Private: never shown to the engineer.
     Route("PUT", "/{id}/feedback", service.save_feedback),
     # Reporter, the engineer's manager or admin (403 for anyone else, including the engineer).

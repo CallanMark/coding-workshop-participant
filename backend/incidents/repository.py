@@ -193,6 +193,68 @@ def insert_event(incident_id: int, actor_id: int | None, event_type: str,
     )
 
 
+
+# --- notes and the audit trail ------------------------------------------------------
+
+NOTE_SELECT = """
+    SELECT n.id, n.incident_id, n.author_id, n.body, n.created_at,
+           u.name AS author_name, u.role AS author_role
+    FROM incident_notes n
+    JOIN users u ON u.id = n.author_id
+"""
+
+
+def list_notes(incident_id: int) -> list[dict]:
+    """An incident's notes, oldest first (a conversation)."""
+    return get_conn().execute(NOTE_SELECT + " WHERE n.incident_id = %s ORDER BY n.created_at, n.id",
+                              (incident_id,)).fetchall()
+
+
+def get_note(incident_id: int, note_id: int) -> dict | None:
+    """One note, only if it belongs to that incident; else None."""
+    return get_conn().execute(NOTE_SELECT + " WHERE n.id = %s AND n.incident_id = %s",
+                              (note_id, incident_id)).fetchone()
+
+
+def insert_note(incident_id: int, author_id: int, body: str) -> int:
+    """Add a note; returns its id."""
+    row = get_conn().execute(
+        "INSERT INTO incident_notes (incident_id, author_id, body) VALUES (%s, %s, %s) RETURNING id",
+        (incident_id, author_id, body),
+    ).fetchone()
+    return row["id"]
+
+
+def update_note(note_id: int, body: str) -> None:
+    """Replace a note's text."""
+    get_conn().execute("UPDATE incident_notes SET body = %s WHERE id = %s", (body, note_id))
+
+
+def delete_note(note_id: int) -> None:
+    """Delete a note."""
+    get_conn().execute("DELETE FROM incident_notes WHERE id = %s", (note_id,))
+
+
+def list_events(incident_id: int) -> list[dict]:
+    """
+    An incident's audit trail, oldest first, with display names: the actor, and for 'assigned' and
+    'team_changed' the people or teams the stored ids refer to (compared as text: the values are text).
+    """
+    query = """
+        SELECT e.id, e.event_type, e.from_value, e.to_value, e.reason, e.created_at,
+               e.actor_id, a.name AS actor_name,
+               COALESCE(fu.name, ft.name) AS from_name, COALESCE(tu.name, tt.name) AS to_name
+        FROM incident_events e
+        LEFT JOIN users a  ON a.id = e.actor_id
+        LEFT JOIN users fu ON e.event_type = 'assigned'     AND fu.id::text = e.from_value
+        LEFT JOIN users tu ON e.event_type = 'assigned'     AND tu.id::text = e.to_value
+        LEFT JOIN teams ft ON e.event_type = 'team_changed' AND ft.id::text = e.from_value
+        LEFT JOIN teams tt ON e.event_type = 'team_changed' AND tt.id::text = e.to_value
+        WHERE e.incident_id = %s
+        ORDER BY e.created_at, e.id
+    """
+    return get_conn().execute(query, (incident_id,)).fetchall()
+
 # --- reporter feedback (private: never joined into INCIDENT_SELECT) ----------------
 
 FEEDBACK_SELECT = """
