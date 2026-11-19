@@ -5,7 +5,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import { listBuildings, listCategories, listFloors, listSeats } from '../../api/facilities';
-import useApiList from './useApiList';
+import useApiList from '../../hooks/useApiList';
 
 /**
  * A select that loads its options: "Loading…" while fetching, the error with Retry if it fails.
