@@ -407,6 +407,22 @@ def get_feedback(req: Request) -> dict | None:
     return feedback
 
 
+def list_engineers(req: Request) -> list[dict]:
+    """
+    Active engineers with availability and workload, for the assign dropdown.
+    Managers see their own team (another ?team_id= is 404); admins see everyone, or one team with ?team_id=.
+    """
+    raw = (req.query.get("team_id") or "").strip()
+    if raw and not (raw.isdigit() and int(raw) > 0):
+        raise BadRequest(details={"team_id": "team_id must be a positive integer"})
+    team_id = int(raw) if raw else None
+    if req.user["role"] == "manager":
+        if team_id not in (None, req.user["team_id"]):
+            raise NotFound("Team not found")
+        team_id = req.user["team_id"]
+    return repository.list_engineers(team_id)
+
+
 def engineer_feedback(req: Request) -> dict:
     """
     All feedback on one engineer's work with their average rating: for their team's manager or an admin
