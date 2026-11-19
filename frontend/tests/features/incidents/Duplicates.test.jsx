@@ -8,6 +8,10 @@ import { ApiError } from '../../../src/api/client';
 import { findDuplicates, getIncident, getIncidentSummary } from '../../../src/api/incidents';
 import DuplicateSuggestions from '../../../src/features/incidents/DuplicateSuggestions';
 import IncidentSummaryPage from '../../../src/features/incidents/IncidentSummaryPage';
+import { pick } from '../../facilitiesMock';
+
+// vi.mock is hoisted above imports, so the factory loads the helper itself.
+vi.mock('../../../src/api/facilities', async () => (await import('../../facilitiesMock')).facilitiesMock());
 
 vi.mock('../../../src/api/incidents', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -74,12 +78,14 @@ describe('possible duplicates on the report form', () => {
     expect(screen.queryByRole('region', { name: 'Possible duplicates' })).not.toBeInTheDocument();
   });
 
-  it('appears on the report form once category and building are filled in', async () => {
+  it('appears on the report form once category and building are chosen', async () => {
     const { default: IncidentCreatePage } = await import('../../../src/features/incidents/IncidentCreatePage');
     render(<MemoryRouter><IncidentCreatePage /></MemoryRouter>);
-    await userEvent.type(screen.getByLabelText(/Category ID/), '1');
-    await userEvent.type(screen.getByLabelText(/Building ID/), '1');
+    await pick(/Category/, /HVAC/);
+    await pick(/Building/, 'HQ Tower');
+    await pick(/Floor/, 'Ground');
     expect(await screen.findByText('Possible duplicates')).toBeInTheDocument();
+    expect(findDuplicates).toHaveBeenLastCalledWith({ category_id: '1', building_id: '1', floor_id: '1' });
   });
 });
 

@@ -4,12 +4,13 @@
  */
 
 /** URL parameter names the list page understands. */
-export const FILTER_NAMES = ['status', 'priority', 'assignee', 'escalated', 'q'];
+export const FILTER_NAMES = ['status', 'priority', 'category', 'building', 'assignee', 'escalated', 'q'];
 
 /**
  * The filter values from the URL, with '' for unset ones.
  * @param {URLSearchParams} searchParams
- * @returns {{status: string, priority: string, assignee: string, escalated: string, q: string}}
+ * @returns {{status: string, priority: string, category: string, building: string, assignee: string,
+ *   escalated: string, q: string}}
  */
 export function readFilters(searchParams) {
   return Object.fromEntries(FILTER_NAMES.map((name) => [name, searchParams.get(name) || '']));
@@ -34,6 +35,8 @@ export function toApiFilters(filters, user) {
   const api = {};
   if (filters.status) api.status = filters.status;
   if (filters.priority) api.priority = filters.priority;
+  if (filters.category) api.category_id = filters.category;
+  if (filters.building) api.building_id = filters.building;
   if (filters.assignee === 'none') api.assignee_id = 'none';
   if (filters.assignee === 'me') api.assignee_id = user.id;
   if (filters.escalated === 'true') api.escalated = 'true';

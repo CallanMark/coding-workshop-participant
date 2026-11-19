@@ -74,6 +74,18 @@ describe('RequireAuth', () => {
     expect(screen.getByText('Admin page')).toBeInTheDocument();
   });
 
+  it('shows the Facilities link only to admins', () => {
+    saveSession({ token: 'jwt', user: EVE });
+    const { unmount } = renderApp('/incidents');
+    expect(screen.queryByRole('link', { name: 'Facilities' })).not.toBeInTheDocument();
+    unmount();
+
+    stubMe(200, ADMIN);
+    saveSession({ token: 'jwt', user: ADMIN });
+    renderApp('/incidents');
+    expect(screen.getByRole('link', { name: 'Facilities' })).toHaveAttribute('href', '/admin/facilities');
+  });
+
   it('signs out with a message when the stored session has expired', async () => {
     stubMe(401, { error: { message: 'Your session has expired. Please sign in again.' } });
     saveSession({ token: 'expired', user: EVE });

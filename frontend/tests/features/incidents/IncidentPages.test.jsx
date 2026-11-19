@@ -9,6 +9,10 @@ import { AuthContext } from '../../../src/context/auth';
 import IncidentCreatePage from '../../../src/features/incidents/IncidentCreatePage';
 import IncidentListPage from '../../../src/features/incidents/IncidentListPage';
 import MyIncidentsPage from '../../../src/features/incidents/MyIncidentsPage';
+import { pick } from '../../facilitiesMock';
+
+// vi.mock is hoisted above imports, so the factory loads the helper itself.
+vi.mock('../../../src/api/facilities', async () => (await import('../../facilitiesMock')).facilitiesMock());
 
 vi.mock('../../../src/api/incidents', async (importOriginal) => ({
   ...(await importOriginal()), // keeps pure helpers such as locationQuery
@@ -65,8 +69,8 @@ describe('incident pages use the signed-in user', () => {
 
     expect(screen.queryByLabelText(/reporter/i)).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText(/title/i), 'Leak');
-    await userEvent.type(screen.getByLabelText(/category id/i), '1');
-    await userEvent.type(screen.getByLabelText(/building id/i), '1');
+    await pick(/Category/, /HVAC/);
+    await pick(/Building/, 'HQ Tower');
     await userEvent.click(screen.getByRole('button', { name: /report incident/i }));
 
     expect(await screen.findByText('Incidents list')).toBeInTheDocument();

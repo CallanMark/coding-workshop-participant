@@ -5,11 +5,12 @@ import Container from '@mui/material/Container';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/auth';
+import { hasRole, useAuth } from '../context/auth';
 
 const NAV_LINKS = [
   { to: '/incidents/mine', label: 'My incidents' },
   { to: '/incidents', label: 'Incidents', end: true },
+  { to: '/admin/facilities', label: 'Facilities', roles: ['admin'] },
 ];
 
 /**
@@ -40,9 +41,11 @@ function UserMenu() {
 }
 
 /**
- * App shell: top bar with navigation and the signed-in user, then the current page.
+ * App shell: top bar with navigation (links limited by role) and the signed-in user, then the current page.
  */
 export default function Layout() {
+  const { user } = useAuth();
+  const links = NAV_LINKS.filter(({ roles }) => !roles || hasRole(user, ...roles));
   return (
     <>
       <AppBar position="static" elevation={0}>
@@ -51,7 +54,7 @@ export default function Layout() {
             ACME Facilities
           </Typography>
           <nav aria-label="Main" style={{ flexGrow: 1 }}>
-            {NAV_LINKS.map(({ to, label, end }) => (
+            {links.map(({ to, label, end }) => (
               <Button
                 key={to}
                 color="inherit"

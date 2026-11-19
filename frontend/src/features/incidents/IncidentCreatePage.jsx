@@ -9,25 +9,19 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { createIncident } from '../../api/incidents';
 import { PRIORITIES } from '../../constants';
+import { CategorySelect, LocationFields } from '../facilities/FacilityFields';
 import DuplicateSuggestions from './DuplicateSuggestions';
 
-// TODO: category/building/floor/seat become dropdowns once the facilities API exists.
 // The reporter is always the signed-in user (set by the server from the login token).
-const ID_FIELDS = [
-  { name: 'category_id', label: 'Category ID', required: true },
-  { name: 'building_id', label: 'Building ID', required: true },
-  { name: 'floor_id', label: 'Floor ID' },
-  { name: 'seat_id', label: 'Seat ID' },
-];
-
+// Category and location are picked by name; the ids only travel to the API.
 const EMPTY_FORM = {
   title: '',
   description: '',
   priority: 'medium',
+  category_id: '',
   building_id: '',
   floor_id: '',
   seat_id: '',
-  category_id: '',
 };
 
 /**
@@ -38,23 +32,20 @@ const EMPTY_FORM = {
 function validate(form) {
   const errors = {};
   if (!form.title.trim()) errors.title = 'Title is required';
-  ID_FIELDS.forEach(({ name, label, required }) => {
-    const value = form[name];
-    if (required && value === '') errors[name] = `${label} is required`;
-    else if (value !== '' && !/^[1-9]\d*$/.test(value)) errors[name] = 'Must be a positive whole number';
-  });
+  if (!form.category_id) errors.category_id = 'Choose what kind of problem it is';
+  if (!form.building_id) errors.building_id = 'Choose the building';
   return errors;
 }
 
 /**
- * Convert form strings into the API payload (numbers for ids, omit empty optionals).
+ * The API payload: numbers for the chosen ids, optional fields left out when empty.
  * @param {object} form
  * @returns {object}
  */
 function toPayload(form) {
   const payload = { title: form.title.trim(), priority: form.priority };
   if (form.description.trim()) payload.description = form.description.trim();
-  ID_FIELDS.forEach(({ name }) => {
+  ['category_id', 'building_id', 'floor_id', 'seat_id'].forEach((name) => {
     if (form[name] !== '') payload[name] = Number(form[name]);
   });
   return payload;
@@ -70,11 +61,12 @@ export default function IncidentCreatePage() {
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const handleChange = (event) => {
-    const { name, value } = event.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => ({ ...prev, [name]: undefined }));
+  const setFields = (fields) => {
+    setForm((prev) => ({ ...prev, ...fields }));
+    setErrors((prev) => ({ ...prev, ...Object.fromEntries(Object.keys(fields).map((name) => [name, undefined])) }));
   };
+
+  const handleChange = (event) => setFields({ [event.target.name]: event.target.value });
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -130,19 +122,17 @@ export default function IncidentCreatePage() {
               <MenuItem key={value} value={value}>{label}</MenuItem>
             ))}
           </TextField>
-          {ID_FIELDS.map(({ name, label, required }) => (
-            <TextField
-              key={name}
-              name={name}
-              label={label}
-              required={required}
-              value={form[name]}
-              onChange={handleChange}
-              error={Boolean(errors[name])}
-              helperText={errors[name]}
-              slotProps={{ htmlInput: { inputMode: 'numeric' } }}
-            />
-          ))}
+          <CategorySelect
+            value={form.category_id}
+            onChange={(id) => setFields({ category_id: id })}
+            required
+            error={errors.category_id}
+          />
+          <LocationFields
+            value={{ building_id: form.building_id, floor_id: form.floor_id, seat_id: form.seat_id }}
+            onChange={setFields}
+            errors={errors}
+          />
           <DuplicateSuggestions
             categoryId={form.category_id}
             buildingId={form.building_id}

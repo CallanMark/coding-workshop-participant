@@ -8,6 +8,7 @@ import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import { PRIORITIES, STATUSES } from '../../constants';
+import { BuildingSelect, CategorySelect } from '../facilities/FacilityFields';
 
 /** Wait this long after the last keystroke before searching (ms). */
 export const SEARCH_DELAY = 400;
@@ -70,6 +71,19 @@ export default function IncidentFilters({ filters, showMine, onChange, onClear }
         />
         {select('status', 'Status', [['', 'Any status'], ...Object.entries(STATUSES).map(([v, { label }]) => [v, label])])}
         {select('priority', 'Priority', [['', 'Any priority'], ...Object.entries(PRIORITIES).map(([v, { label }]) => [v, label])])}
+        <CategorySelect
+          size="small"
+          value={filters.category}
+          onChange={(id) => onChange('category', id)}
+          emptyLabel="Any category"
+          showTeam={false}
+        />
+        <BuildingSelect
+          size="small"
+          value={filters.building}
+          onChange={(id) => onChange('building', id)}
+          emptyLabel="Any building"
+        />
         {select('assignee', 'Assignee', [
           ['', 'Anyone'], ['none', 'Unassigned'], ...(showMine ? [['me', 'Assigned to me']] : []),
         ])}
@@ -90,7 +104,8 @@ export default function IncidentFilters({ filters, showMine, onChange, onClear }
 
 IncidentFilters.propTypes = {
   filters: PropTypes.shape({
-    status: PropTypes.string, priority: PropTypes.string, assignee: PropTypes.string,
+    status: PropTypes.string, priority: PropTypes.string, category: PropTypes.string,
+    building: PropTypes.string, assignee: PropTypes.string,
     escalated: PropTypes.string, q: PropTypes.string,
   }).isRequired,
   showMine: PropTypes.bool.isRequired,

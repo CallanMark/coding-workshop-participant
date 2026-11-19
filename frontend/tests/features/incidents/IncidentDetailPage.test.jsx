@@ -10,6 +10,9 @@ import { ApiError } from '../../../src/api/client';
 import * as api from '../../../src/api/incidents';
 import { AuthContext } from '../../../src/context/auth';
 import IncidentDetailPage from '../../../src/features/incidents/IncidentDetailPage';
+import { pick } from '../../facilitiesMock';
+
+vi.mock('../../../src/api/facilities', async () => (await import('../../facilitiesMock')).facilitiesMock());
 
 vi.mock('../../../src/api/incidents', async (importOriginal) => {
   const actual = await importOriginal();
@@ -159,6 +162,18 @@ describe('incident detail page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Assign' }));
     expect(await screen.findByText('Faye Fixer is no longer active')).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('edits category and location by name and warns before moving to another team', async () => {
+    api.getIncident.mockResolvedValue({ ...INCIDENT, category_id: 1, building_id: 1, floor_id: 1, seat_id: null });
+    api.updateIncident.mockResolvedValue({});
+    renderAs(PAT);
+    await userEvent.click((await actions()).getByRole('button', { name: 'Edit' }));
+    await pick(/Category/, /IT Hardware/);
+    expect(screen.getByText(/moves the incident to Workplace Technology and unassigns Fred Facilities/)).toBeInTheDocument();
+    await pick(/Floor/, 'Floor 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.updateIncident).toHaveBeenCalledWith(10, { category_id: 4, floor_id: 2 });
   });
 
   it('confirms before an admin deletes, then goes back to the list', async () => {
