@@ -7,11 +7,11 @@ from psycopg import errors as pg_errors
 
 import repository
 from common.db import transaction
+from common.domain import CATEGORY_TYPES
 from common.errors import BadRequest, Conflict, NotFound
 from common.http import Request
 
 MAX_NAME = 100
-CATEGORY_TYPES = ("facility", "technology")
 
 # Unique constraint -> (field, message template); {value} is the clashing value.
 DUPLICATES = {

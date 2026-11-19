@@ -6,6 +6,7 @@ Every query uses parameters; callers wrap multi-step writes in common.db.transac
 from psycopg import sql
 
 from common.db import get_conn
+from common.domain import ACTIVE_STATUSES
 
 # Incident columns plus display names for related rows.
 INCIDENT_SELECT = """
@@ -97,7 +98,7 @@ SUMMARY_SELECT = """
 """
 # A possible duplicate: still active, and exactly the same category, building and floor (no floor matches no floor).
 DUPLICATE_WHERE = """
-    WHERE i.status IN ('open', 'in_progress', 'blocked')
+    WHERE i.status = ANY(%(active)s)
       AND i.category_id = %(category_id)s
       AND i.building_id = %(building_id)s
       AND i.floor_id IS NOT DISTINCT FROM %(floor_id)s
@@ -106,14 +107,16 @@ DUPLICATE_WHERE = """
 
 def find_duplicates(category_id: int, building_id: int, floor_id: int | None, limit: int) -> list[dict]:
     """Summaries of active incidents at the same place in the same category, newest first."""
-    params = {"category_id": category_id, "building_id": building_id, "floor_id": floor_id, "limit": limit}
+    params = {"category_id": category_id, "building_id": building_id, "floor_id": floor_id, "limit": limit,
+              "active": list(ACTIVE_STATUSES)}
     query = SUMMARY_SELECT + DUPLICATE_WHERE + " ORDER BY i.created_at DESC, i.id DESC LIMIT %(limit)s"
     return get_conn().execute(query, params).fetchall()
 
 
 def get_duplicate(incident_id: int, category_id: int, building_id: int, floor_id: int | None) -> dict | None:
     """One incident's summary, only if it is a possible duplicate for that category and place; else None."""
-    params = {"id": incident_id, "category_id": category_id, "building_id": building_id, "floor_id": floor_id}
+    params = {"id": incident_id, "category_id": category_id, "building_id": building_id, "floor_id": floor_id,
+              "active": list(ACTIVE_STATUSES)}
     return get_conn().execute(SUMMARY_SELECT + DUPLICATE_WHERE + " AND i.id = %(id)s", params).fetchone()
 
 
@@ -286,31 +289,19 @@ def save_feedback(incident_id: int, reporter_id: int, engineer_id: int, rating: 
     )
 
 
-def get_user(user_id: int) -> dict | None:
-    """A user's id, name, role, team and whether they are active and available, or None."""
-    return get_conn().execute(
-        """
-        SELECT u.id, u.name, u.role, u.team_id, t.name AS team_name, u.is_active, u.is_available
-        FROM users u LEFT JOIN teams t ON t.id = u.team_id
-        WHERE u.id = %s
-        """,
-        (user_id,),
-    ).fetchone()
-
-
 def list_engineers(team_id: int | None) -> list[dict]:
     """Active engineers (all, or one team's), by name, with availability and how many active incidents they hold."""
     query = """
         SELECT u.id, u.name, u.team_id, t.name AS team_name, u.is_available,
                (SELECT count(*) FROM incidents i
-                 WHERE i.assignee_id = u.id AND i.status IN ('open', 'in_progress', 'blocked')) AS open_incidents
+                 WHERE i.assignee_id = u.id AND i.status = ANY(%(active)s)) AS open_incidents
         FROM users u
         JOIN teams t ON t.id = u.team_id
         WHERE u.role = 'engineer' AND u.is_active
           AND (%(team_id)s::int IS NULL OR u.team_id = %(team_id)s)
         ORDER BY u.name, u.id
     """
-    return get_conn().execute(query, {"team_id": team_id}).fetchall()
+    return get_conn().execute(query, {"team_id": team_id, "active": list(ACTIVE_STATUSES)}).fetchall()
 
 
 def list_engineer_feedback(engineer_id: int) -> list[dict]:

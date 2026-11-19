@@ -11,6 +11,7 @@ import pytest
 import function
 import repository
 import service
+from common import lookups
 from common.auth import issue_token
 
 # Same people as seed.sql. Team 1 = Facilities, team 2 = Workplace Technology.
@@ -104,7 +105,7 @@ def repo(monkeypatch):
 
     monkeypatch.setattr(repository, "get_feedback", get_feedback)
     monkeypatch.setattr(repository, "save_feedback", save_feedback)
-    monkeypatch.setattr(repository, "get_user", users.get)
+    monkeypatch.setattr(lookups, "get_user", users.get)
     monkeypatch.setattr(repository, "list_engineer_feedback", list_engineer_feedback)
     state["notes"] = {}
 
