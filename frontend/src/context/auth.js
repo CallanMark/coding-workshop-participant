@@ -28,3 +28,12 @@ export function useAuth() {
 export function hasRole(user, ...roles) {
   return Boolean(user) && roles.includes(user.role);
 }
+
+/**
+ * Where a user lands after signing in: the team dashboard for staff, their own incidents for reporters.
+ * @param {{role: string}} user
+ * @returns {string}
+ */
+export function homePath(user) {
+  return hasRole(user, 'engineer', 'manager', 'admin') ? '/dashboard' : '/incidents/mine';
+}

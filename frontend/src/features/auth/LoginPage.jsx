@@ -8,9 +8,8 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useAuth } from '../../context/auth';
+import { homePath, useAuth } from '../../context/auth';
 
-const HOME = '/incidents/mine';
 const PUBLIC_PATHS = ['/', '/login'];
 
 /**
@@ -27,12 +26,13 @@ function validate(form) {
 }
 
 /**
- * Where to go after signing in: the page the user was sent here from, or the home page.
+ * Where to go after signing in: the page the user was sent here from, or their home page.
  * @param {object | undefined} from - Location saved by RequireAuth.
+ * @param {{role: string}} user - The signed-in user.
  * @returns {string}
  */
-function destination(from) {
-  if (!from || PUBLIC_PATHS.includes(from.pathname)) return HOME;
+function destination(from, user) {
+  if (!from || PUBLIC_PATHS.includes(from.pathname)) return homePath(user);
   return `${from.pathname}${from.search || ''}`;
 }
 
@@ -48,8 +48,8 @@ export default function LoginPage() {
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const next = destination(location.state?.from);
-  if (user && !submitting) return <Navigate to={next} replace />;
+  const from = location.state?.from;
+  if (user && !submitting) return <Navigate to={destination(from, user)} replace />;
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -66,8 +66,8 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
-      await login(form.email.trim(), form.password);
-      navigate(next, { replace: true });
+      const signedIn = await login(form.email.trim(), form.password);
+      navigate(destination(from, signedIn), { replace: true });
     } catch (error) {
       setFormError(error.message);
       setForm((prev) => ({ ...prev, password: '' }));
