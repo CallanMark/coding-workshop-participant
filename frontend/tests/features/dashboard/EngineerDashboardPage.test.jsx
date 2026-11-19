@@ -24,7 +24,7 @@ describe('engineer dashboard', () => {
     expect(screen.getByText('Workplace Technology')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'At a glance' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Reporter feedback' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Team dashboard' })).toHaveAttribute('href', '/dashboard?days=30');
+    expect(screen.getByRole('link', { name: 'Workplace Technology dashboard' })).toHaveAttribute('href', '/dashboard?days=30');
   });
 
   it("shows a manager the engineer's feedback", async () => {
@@ -43,7 +43,7 @@ describe('engineer dashboard', () => {
     analytics.getEngineerDashboard.mockResolvedValue({ ...TINA_DASHBOARD, feedback: { ...FEEDBACK, ratings: 0 } });
     renderDashboard(ADMIN, '/dashboard/engineers/5');
     expect(await screen.findByText('No feedback yet.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Team dashboard' })).toHaveAttribute('href', '/dashboard?team=2&days=30');
+    expect(screen.getByRole('link', { name: 'Workplace Technology dashboard' })).toHaveAttribute('href', '/dashboard?team=2&days=30');
   });
 
   it("shows the server's refusal", async () => {

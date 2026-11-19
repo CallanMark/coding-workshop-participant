@@ -40,7 +40,7 @@ describe('team dashboard', () => {
 
   it("shows an engineer their own team's numbers over 30 days", async () => {
     renderDashboard(TINA);
-    expect(await screen.findByRole('heading', { name: 'Team dashboard: Workplace Technology' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Workplace Technology dashboard' })).toBeInTheDocument();
     expect(analytics.getTeamDashboard).toHaveBeenCalledWith('2', '30');
 
     const glance = section('At a glance');

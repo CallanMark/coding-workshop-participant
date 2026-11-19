@@ -104,6 +104,17 @@ describe('LoginPage', () => {
     expect(await screen.findByText('All incidents page')).toBeInTheDocument();
   });
 
+  it("ignores a page left by someone else that the new user's role can't open", async () => {
+    login.mockResolvedValue({ token: 'jwt', user: EVE });
+    renderLogin({ pathname: '/login', state: { from: { pathname: '/dashboard', search: '?days=7' } } });
+
+    await userEvent.type(screen.getByLabelText(/email/i), 'eve@acme.inc');
+    await userEvent.type(screen.getByLabelText(/password/i), 'Password123!');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    expect(await screen.findByText('My incidents page')).toBeInTheDocument();
+  });
+
   it('sends an already signed-in user straight on', async () => {
     saveSession({ token: 'jwt', user: EVE });
     renderLogin('/');
