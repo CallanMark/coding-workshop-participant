@@ -242,3 +242,42 @@ Whatever hasn't happened yet "now" decides its current status. That gives a real
 - It never downgrades.
 - So to reset the cloud's demo data, bump `SEED_VERSION` in `bin/generate_seed.py`, regenerate, and deploy.
 - **This deletes anything entered in the cloud since the last seed.**
+
+## Engineer profiles (auth service)
+
+The facility admin manages engineer profiles from **Engineers** (`/admin/engineers`), as the brief asks ("create engineer profiles"; "CRUD … engineer profiles"). These endpoints are admin only. Managers and other roles get 403.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/auth/engineers?team_id=` | Every engineer, deactivated ones too, with team, availability and open incidents. `team_id` is optional. |
+| `POST /api/auth/engineers` | Create an engineer on a team with a temporary password (`name`, `email`, `password`, `team_id`). |
+| `PATCH /api/auth/engineers/{id}` | Change `name`, `team_id` or `is_available`, or deactivate and reactivate with `is_active`. Only the fields sent change. |
+
+- **Deactivated, never deleted.** Incident history keeps their name. A deactivated engineer can't sign in or be assigned incidents, and can be reactivated.
+- **Open work first.** Deactivating an engineer, or moving them to another team, while they still hold open incidents returns 409: "Reassign their N open incidents first".
+- **Availability** is what the assign dialog and the dashboards' workload view show.
+- **Shared queries.** The engineer list and the open-work count live in `backend/_common/lookups.py`, also used by the incidents assign list. Updates go through one `update_row` helper in `backend/_common/db.py`, which quotes identifiers with psycopg's `sql` module, and every value is a parameter.
+
+## Integration and load tests
+
+### Integration tests (real PostgreSQL)
+Each service has `backend/<service>/integration/`. These tests send requests through that service's real Lambda handler against a **real, freshly seeded database**, so nothing is faked: routing, auth, validation, SQL and database constraints all run. The unit tests in `tests/` keep faking the database, so they stay fast and need no server.
+
+- **Their own databases.** Each service creates `acme_it_<service>`, dropping any old one, on the local Postgres server, and seeds it through the app's own cold-start path (`ensure_schema` loads `seed.sql`). The development database is never touched.
+- **Shared setup.** `backend/integration_support.py` holds it: the fresh database, a request client, signed tokens for the seeded accounts, and direct SQL reads for checking what was really stored.
+- **What they cover:**
+  - sign-in, registration and engineer profiles, including the unique-email and role-team constraints;
+  - the full incident workflow, with every timestamp and audit event;
+  - scoping per role, filters, notes, escalation, feedback, duplicates and cascading deletes;
+  - facilities CRUD and in-use 409s;
+  - every dashboard number, checked against an independent SQL count.
+
+```bash
+./bin/sync-common.sh
+cd backend/incidents && pytest tests integration --cov=service --cov=routes --cov=repository --cov=common
+```
+
+Coverage of our own code (unit and integration together) is auth 97%, incidents 92%, facilities 82% and analytics 82%. The SQL layer (`repository.py`) went from 52–65% to 95–100%. CI's "Integration tests (real PostgreSQL)" job runs these and fails below 80%.
+
+### Load tests (Artillery)
+Artillery scenarios live in `load-tests/`. Each virtual user signs in for real and uses the main screens for their role. The results and analysis are in [docs/load-testing.md](docs/load-testing.md), and how to run them is in [load-tests/README.md](load-tests/README.md).
