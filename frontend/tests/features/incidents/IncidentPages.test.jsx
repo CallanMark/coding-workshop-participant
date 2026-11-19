@@ -10,8 +10,9 @@ import IncidentCreatePage from '../../../src/features/incidents/IncidentCreatePa
 import IncidentListPage from '../../../src/features/incidents/IncidentListPage';
 import MyIncidentsPage from '../../../src/features/incidents/MyIncidentsPage';
 
-vi.mock('../../../src/api/incidents', () => ({
-  listIncidents: vi.fn(), createIncident: vi.fn(), changeIncidentStatus: vi.fn(),
+vi.mock('../../../src/api/incidents', async (importOriginal) => ({
+  ...(await importOriginal()), // keeps pure helpers such as locationQuery
+  listIncidents: vi.fn(), createIncident: vi.fn(), changeIncidentStatus: vi.fn(), findDuplicates: vi.fn(),
 }));
 
 const USERS = {
