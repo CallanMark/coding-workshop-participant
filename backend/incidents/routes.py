@@ -12,6 +12,10 @@ from common.http import Route
 ROUTES = [
     # Any signed-in user; the list is scoped to the user's role (see service.visible_to). ?mine=true narrows it.
     Route("GET", "/", service.list_incidents),  # filters: see service.list_incidents
+    # Any signed-in user: active incidents with the same ?category_id=&building_id=&floor_id= (summaries only).
+    Route("GET", "/duplicates", service.find_duplicates),
+    # Any signed-in user, only for a possible duplicate of that category and place (404 otherwise).
+    Route("GET", "/{id}/summary", service.get_duplicate_summary),
     # Anyone who can see the incident (404 otherwise).
     Route("GET", "/{id}", service.get_incident),
     # Any signed-in user; the reporter is the signed-in user.
@@ -22,6 +26,22 @@ ROUTES = [
     Route("DELETE", "/{id}", service.delete_incident, status=204, roles=("admin",)),
     # Assignee / reporter / team manager / admin, per service.TRANSITIONS.
     Route("POST", "/{id}/status", service.change_status),
-    # Reporter requests; team manager or admin clears. TODO: stub, returns 501.
+    # Team manager or admin assigns anyone on the team; an engineer can take an unassigned team ticket.
+    Route("POST", "/{id}/assign", service.assign_incident, roles=("engineer", "manager", "admin")),
+    # Reporter, assignee, team manager or admin escalates; team manager or admin clears.
     Route("POST", "/{id}/escalate", service.escalate_incident),
+    # Notes: anyone who can see the incident reads and adds (not once closed); the author edits;
+    # the author or an admin deletes.
+    Route("GET", "/{id}/notes", service.list_notes),
+    Route("POST", "/{id}/notes", service.add_note, status=201),
+    Route("PUT", "/{id}/notes/{note_id}", service.edit_note),
+    Route("DELETE", "/{id}/notes/{note_id}", service.delete_note, status=204),
+    # The audit trail: anyone who can see the incident.
+    Route("GET", "/{id}/events", service.list_events),
+    # Reporter only, once resolved or closed. Private: never shown to the engineer.
+    Route("PUT", "/{id}/feedback", service.save_feedback),
+    # Reporter, the engineer's manager or admin (403 for anyone else, including the engineer).
+    Route("GET", "/{id}/feedback", service.get_feedback),
+    # The engineer's team manager or admin: all feedback on their work and the average rating.
+    Route("GET", "/engineers/{id}/feedback", service.engineer_feedback, roles=("manager", "admin")),
 ]
