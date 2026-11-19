@@ -131,8 +131,11 @@ resource "aws_s3_bucket_policy" "this" {
         Principal = {
           Service = data.aws_service_principal.cloudfront.name
         }
-        Action   = "s3:GetObject"
-        Resource = format("%s/*", aws_s3_bucket.this.arn)
+        # ListBucket lets S3 answer a missing key with 404 instead of 403 (AccessDenied), so the 404 rule on
+        # the distribution serves index.html for app pages opened directly or reloaded (/dashboard, /incidents/7).
+        # It only reveals file names, which are the public build output anyway.
+        Action   = ["s3:GetObject", "s3:ListBucket"]
+        Resource = [aws_s3_bucket.this.arn, format("%s/*", aws_s3_bucket.this.arn)]
         Condition = {
           StringEquals = {
             "AWS:SourceArn" = format(
