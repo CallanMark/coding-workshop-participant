@@ -9,6 +9,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { createIncident } from '../../api/incidents';
 import { PRIORITIES } from '../../constants';
+import DuplicateSuggestions from './DuplicateSuggestions';
 
 // TODO: category/building/floor/seat become dropdowns once the facilities API exists.
 // The reporter is always the signed-in user (set by the server from the login token).
@@ -142,6 +143,11 @@ export default function IncidentCreatePage() {
               slotProps={{ htmlInput: { inputMode: 'numeric' } }}
             />
           ))}
+          <DuplicateSuggestions
+            categoryId={form.category_id}
+            buildingId={form.building_id}
+            floorId={form.floor_id}
+          />
           <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
             <Button component={RouterLink} to="/incidents" disabled={saving}>Cancel</Button>
             <Button type="submit" variant="contained" disabled={saving}>

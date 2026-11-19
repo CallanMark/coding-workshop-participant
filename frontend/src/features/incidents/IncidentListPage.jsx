@@ -8,6 +8,7 @@ import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import CircularProgress from '@mui/material/CircularProgress';
+import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -79,7 +80,9 @@ function IncidentTable({ incidents }) {
           {incidents.map((incident) => (
             <TableRow key={incident.id} hover>
               <TableCell>{incident.id}</TableCell>
-              <TableCell>{incident.title}</TableCell>
+              <TableCell>
+                <Link component={RouterLink} to={`/incidents/${incident.id}`}>{incident.title}</Link>
+              </TableCell>
               <TableCell><StatusChip status={incident.status} /></TableCell>
               <TableCell><PriorityChip priority={incident.priority} /></TableCell>
               <TableCell>{incident.category_name}</TableCell>
@@ -111,7 +114,7 @@ function IncidentCards({ incidents }) {
         <Card key={incident.id} variant="outlined">
           <CardContent>
             <Typography variant="subtitle1" component="h2" gutterBottom>
-              #{incident.id} {incident.title}
+              <Link component={RouterLink} to={`/incidents/${incident.id}`}>#{incident.id} {incident.title}</Link>
             </Typography>
             <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
               <StatusChip status={incident.status} />
@@ -152,6 +155,7 @@ export default function IncidentListPage() {
   const isPhone = useMediaQuery({ maxWidth: 899 });
   const location = useLocation();
   const createdTitle = location.state?.createdTitle;
+  const deletedTitle = location.state?.deletedTitle;
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState({ status: 'loading', incidents: [], error: null });
 
@@ -213,6 +217,11 @@ export default function IncidentListPage() {
       {createdTitle && (
         <Alert severity="success" sx={{ mb: 2 }}>
           Incident &quot;{createdTitle}&quot; was reported.
+        </Alert>
+      )}
+      {deletedTitle && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Incident &quot;{deletedTitle}&quot; was deleted.
         </Alert>
       )}
       {content}

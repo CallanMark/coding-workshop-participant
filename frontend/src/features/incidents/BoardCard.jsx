@@ -1,8 +1,10 @@
 import PropTypes from 'prop-types';
 import { useDraggable } from '@dnd-kit/core';
+import { Link as RouterLink } from 'react-router-dom';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
+import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { PriorityChip } from '../../components/IncidentChips';
@@ -34,7 +36,10 @@ export function BoardCardContent({ incident, userId }) {
   return (
     <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
       <Typography variant="body2" sx={{ fontWeight: 600 }} gutterBottom>
-        #{incident.id} {incident.title}
+        {/* A click opens it; dragging only starts after the pointer moves, so both work. */}
+        <Link component={RouterLink} to={`/incidents/${incident.id}`} color="inherit" underline="hover">
+          #{incident.id} {incident.title}
+        </Link>
       </Typography>
       <Stack direction="row" spacing={0.5} sx={{ mb: 1, flexWrap: 'wrap', rowGap: 0.5 }}>
         <PriorityChip priority={incident.priority} />

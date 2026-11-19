@@ -4,7 +4,9 @@ import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
 import LoginPage from './features/auth/LoginPage';
 import IncidentCreatePage from './features/incidents/IncidentCreatePage';
+import IncidentDetailPage from './features/incidents/IncidentDetailPage';
 import IncidentListPage from './features/incidents/IncidentListPage';
+import IncidentSummaryPage from './features/incidents/IncidentSummaryPage';
 import MyIncidentsPage from './features/incidents/MyIncidentsPage';
 
 /**
@@ -20,6 +22,8 @@ export default function App() {
           <Route path="incidents" element={<IncidentListPage />} />
           <Route path="incidents/mine" element={<MyIncidentsPage />} />
           <Route path="incidents/new" element={<IncidentCreatePage />} />
+          <Route path="incidents/:id" element={<IncidentDetailPage />} />
+          <Route path="incidents/:id/summary" element={<IncidentSummaryPage />} />
           <Route path="*" element={<Typography>Page not found.</Typography>} />
         </Route>
       </Route>
