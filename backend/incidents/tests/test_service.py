@@ -38,7 +38,7 @@ def incident(status="open", team_id=1, reporter_id=EVE["id"], assignee_id=FRED["
 @pytest.fixture
 def repo(monkeypatch):
     """In-memory stand-in for repository.py; records what the service asked for."""
-    state = {"incidents": {}, "events": [], "list_calls": [], "inserted": None}
+    state = {"incidents": {}, "events": [], "list_calls": [], "inserted": None, "updates": [], "duplicate_calls": []}
 
     def lock_incident(incident_id):
         row = state["incidents"].get(incident_id)
@@ -51,9 +51,24 @@ def repo(monkeypatch):
         state["events"].append({"incident_id": incident_id, "actor_id": actor_id, "type": event_type,
                                 "from": from_value, "to": to_value, "reason": reason})
 
-    def list_incidents(visible, mine_user_id=None):
-        state["list_calls"].append((visible, mine_user_id))
+    def list_incidents(visible, mine_user_id=None, filters=None):
+        state["list_calls"].append((visible, mine_user_id, filters))
         return []
+
+    def update_incident(incident_id, fields):
+        state["updates"].append(fields)
+        state["incidents"][incident_id].update(fields)
+
+    def delete_incident(incident_id):
+        return state["incidents"].pop(incident_id, None) is not None
+
+    def find_duplicates(category_id, building_id, floor_id, limit):
+        state["duplicate_calls"].append((category_id, building_id, floor_id, limit))
+        return [{"id": 1, "title": "Air con not working"}]
+
+    def get_duplicate(incident_id, category_id, building_id, floor_id):
+        match = (incident_id, category_id, building_id, floor_id) == (1, 1, 1, 1)
+        return {"id": 1, "title": "Air con not working"} if match else None
 
     def insert_incident(fields):
         state["inserted"] = fields
@@ -66,6 +81,10 @@ def repo(monkeypatch):
     monkeypatch.setattr(repository, "insert_event", insert_event)
     monkeypatch.setattr(repository, "list_incidents", list_incidents)
     monkeypatch.setattr(repository, "insert_incident", insert_incident)
+    monkeypatch.setattr(repository, "update_incident", update_incident)
+    monkeypatch.setattr(repository, "delete_incident", delete_incident)
+    monkeypatch.setattr(repository, "find_duplicates", find_duplicates)
+    monkeypatch.setattr(repository, "get_duplicate", get_duplicate)
     monkeypatch.setattr(repository, "get_category_team", {1: 1, 4: 2}.get)
     monkeypatch.setattr(service, "transaction", nullcontext)
     return state
@@ -87,7 +106,8 @@ def call(method, path, user=None, body=None, query=None):
 # --- sign-in and role on routes ---------------------------------------------------
 
 @pytest.mark.parametrize("method,path", [
-    ("GET", "/"), ("POST", "/"), ("PUT", "/10"), ("DELETE", "/10"), ("POST", "/10/status"), ("POST", "/10/escalate"),
+    ("GET", "/"), ("GET", "/10"), ("POST", "/"), ("PUT", "/10"), ("DELETE", "/10"), ("POST", "/10/status"),
+    ("POST", "/10/escalate"), ("GET", "/duplicates"), ("GET", "/10/summary"),
 ])
 def test_every_route_needs_a_token(repo, method, path):
     assert call(method, path)[0] == 401
@@ -98,8 +118,14 @@ def test_delete_is_admin_only(repo, user):
     assert call("DELETE", "/10", user)[0] == 403
 
 
-def test_admin_reaches_delete_stub(repo):
-    assert call("DELETE", "/10", ADMIN)[0] == 501
+def test_admin_deletes_an_incident(repo):
+    repo["incidents"][10] = incident()
+    assert call("DELETE", "/10", ADMIN)[0] == 204
+    assert 10 not in repo["incidents"]
+
+
+def test_deleting_an_unknown_incident_is_404(repo):
+    assert call("DELETE", "/10", ADMIN)[0] == 404
 
 
 # --- list scope -----------------------------------------------------------------
@@ -112,12 +138,12 @@ def test_admin_reaches_delete_stub(repo):
 ])
 def test_list_is_scoped_to_the_role(repo, user, visible):
     assert call("GET", "/", user)[0] == 200
-    assert repo["list_calls"] == [(visible, None)]
+    assert repo["list_calls"] == [(visible, None, {})]
 
 
 def test_list_mine_narrows_to_reported_or_assigned(repo):
     call("GET", "/", FRED, query={"mine": "true"})
-    assert repo["list_calls"] == [({"reporter_id": 4, "assignee_id": 4, "team_id": 1}, 4)]
+    assert repo["list_calls"] == [({"reporter_id": 4, "assignee_id": 4, "team_id": 1}, 4, {})]
 
 
 def test_list_ignores_user_id_from_the_query(repo):
@@ -129,6 +155,41 @@ def test_list_rejects_a_bad_mine_value(repo):
     status, body = call("GET", "/", EVE, query={"mine": "yes"})
     assert status == 400
     assert "mine" in body["error"]["details"]
+
+
+def test_list_filters_are_parsed_and_passed_on(repo):
+    query = {"status": "open", "priority": "high", "category_id": "4", "building_id": "2",
+             "assignee_id": "none", "escalated": "true", "q": "  wi-fi  "}
+    assert call("GET", "/", ADMIN, query=query)[0] == 200
+    assert repo["list_calls"][0][2] == {"status": "open", "priority": "high", "category_id": 4, "building_id": 2,
+                                        "assignee_id": None, "is_escalated": True, "q": "wi-fi"}
+
+
+def test_blank_filters_are_ignored(repo):
+    call("GET", "/", ADMIN, query={"status": "", "q": "   ", "assignee_id": ""})
+    assert repo["list_calls"][0][2] == {}
+
+
+def test_bad_filters_name_each_field(repo):
+    query = {"status": "done", "priority": "urgent", "category_id": "0", "building_id": "x",
+             "assignee_id": "-1", "escalated": "yes", "q": "x" * 101}
+    status, body = call("GET", "/", ADMIN, query=query)
+    assert status == 400
+    assert set(body["error"]["details"]) == set(query)
+    assert repo["list_calls"] == []
+
+
+# --- detail ---------------------------------------------------------------------
+
+def test_detail_for_someone_in_scope(repo):
+    repo["incidents"][10] = incident()
+    assert call("GET", "/10", EVE) == (200, repo["incidents"][10])
+
+
+@pytest.mark.parametrize("user", [SAM, TINA], ids=["other employee", "other-team engineer"])
+def test_detail_out_of_scope_is_404(repo, user):
+    repo["incidents"][10] = incident()
+    assert call("GET", "/10", user)[0] == 404
 
 
 # --- create ---------------------------------------------------------------------
@@ -242,3 +303,126 @@ def test_engineer_teammate_can_see_but_manager_relation_needs_same_team():
     assert service._relations(item, PAT) == {"team", "manager"}
     assert service._relations(item, MORGAN) == set()
     assert service._relations(item, ADMIN) == {"admin"}
+
+
+# --- edit -----------------------------------------------------------------------
+
+def edit_target(repo, **fields):
+    """An incident #10 with the fields edits compare against."""
+    repo["incidents"][10] = incident(title="Old", description=None, priority="medium", category_id=1,
+                                     building_id=1, floor_id=1, seat_id=1, assigned_at=None, **fields)
+    return repo["incidents"][10]
+
+
+@pytest.mark.parametrize("user", [EVE, PAT, ADMIN], ids=["reporter while open", "team manager", "admin"])
+def test_who_may_edit(repo, user):
+    edit_target(repo)
+    status, body = call("PUT", "/10", user, {"title": "  New title "})
+    assert status == 200, body
+    assert repo["incidents"][10]["title"] == "New title"
+
+
+@pytest.mark.parametrize("user,status_,expected", [
+    (EVE, "in_progress", 403),      # reporter, but no longer open
+    (FRED, "open", 403),            # assignee may not edit details
+    (FRED_TEAMMATE, "open", 403),   # teammate
+    (SAM, "open", 404),             # out of scope
+    (TINA, "open", 404),
+])
+def test_who_may_not_edit(repo, user, status_, expected):
+    edit_target(repo, status=status_)
+    assert call("PUT", "/10", user, {"title": "New"})[0] == expected
+    assert repo["updates"] == []
+
+
+def test_closed_incident_cannot_be_edited(repo):
+    edit_target(repo, status="closed")
+    assert call("PUT", "/10", ADMIN, {"title": "New"})[0] == 409
+
+
+def test_edit_needs_at_least_one_field(repo):
+    edit_target(repo)
+    assert call("PUT", "/10", ADMIN, {})[0] == 400
+
+
+def test_edit_validates_only_the_fields_sent(repo):
+    edit_target(repo)
+    status, body = call("PUT", "/10", ADMIN, {"title": " ", "priority": None, "floor_id": "2"})
+    assert status == 400
+    assert set(body["error"]["details"]) == {"title", "priority", "floor_id"}
+
+
+def test_edit_writes_only_what_changed(repo):
+    edit_target(repo)
+    call("PUT", "/10", ADMIN, {"title": "Old", "priority": "medium"})
+    assert repo["updates"] == []
+    assert repo["events"] == []
+
+
+def test_priority_change_is_recorded(repo):
+    edit_target(repo)
+    call("PUT", "/10", PAT, {"priority": "critical"})
+    assert repo["updates"][0]["priority"] == "critical"
+    assert [(e["type"], e["from"], e["to"]) for e in repo["events"]] == [("priority_changed", "medium", "critical")]
+
+
+def test_moving_building_clears_floor_and_seat(repo):
+    edit_target(repo)
+    call("PUT", "/10", ADMIN, {"building_id": 2})
+    update = repo["updates"][0]
+    assert (update["building_id"], update["floor_id"], update["seat_id"]) == (2, None, None)
+
+
+def test_moving_floor_clears_only_the_seat(repo):
+    edit_target(repo)
+    call("PUT", "/10", ADMIN, {"floor_id": 2})
+    assert "building_id" not in repo["updates"][0]
+    assert (repo["updates"][0]["floor_id"], repo["updates"][0]["seat_id"]) == (2, None)
+
+
+def test_category_of_another_team_moves_and_unassigns(repo):
+    edit_target(repo)["assigned_at"] = "2026-11-18T09:00:00Z"
+    status, _ = call("PUT", "/10", PAT, {"category_id": 4})
+    assert status == 200
+    update = repo["updates"][0]
+    assert (update["team_id"], update["assignee_id"], update["assigned_at"]) == (2, None, None)
+    assert [(e["type"], e["from"], e["to"]) for e in repo["events"]] == [
+        ("team_changed", "1", "2"), ("assigned", "4", None)]
+
+
+def test_only_open_incidents_change_team(repo):
+    edit_target(repo, status="in_progress")
+    assert call("PUT", "/10", ADMIN, {"category_id": 4})[0] == 409
+
+
+def test_unknown_category_on_edit_is_a_field_error(repo):
+    edit_target(repo)
+    status, body = call("PUT", "/10", ADMIN, {"category_id": 777})
+    assert status == 400
+    assert "category_id" in body["error"]["details"]
+
+
+# --- possible duplicates ----------------------------------------------------------
+
+def test_duplicates_for_a_place_and_category(repo):
+    status, body = call("GET", "/duplicates", SAM, query={"category_id": "1", "building_id": "1", "floor_id": "1"})
+    assert status == 200
+    assert body == [{"id": 1, "title": "Air con not working"}]
+    assert repo["duplicate_calls"] == [(1, 1, 1, service.MAX_DUPLICATES)]
+
+
+def test_duplicates_without_a_floor_match_no_floor(repo):
+    call("GET", "/duplicates", SAM, query={"category_id": "1", "building_id": "1", "floor_id": ""})
+    assert repo["duplicate_calls"][0][2] is None
+
+
+def test_duplicates_need_category_and_building(repo):
+    status, body = call("GET", "/duplicates", SAM, query={"floor_id": "x"})
+    assert status == 400
+    assert set(body["error"]["details"]) == {"category_id", "building_id", "floor_id"}
+
+
+def test_summary_only_for_a_matching_duplicate(repo):
+    match = {"category_id": "1", "building_id": "1", "floor_id": "1"}
+    assert call("GET", "/1/summary", SAM, query=match)[0] == 200
+    assert call("GET", "/1/summary", SAM, query={**match, "category_id": "2"})[0] == 404
