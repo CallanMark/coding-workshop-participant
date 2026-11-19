@@ -16,6 +16,7 @@ PRIORITIES = ("low", "medium", "high", "critical")
 STATUSES = ("open", "in_progress", "blocked", "resolved", "closed")
 MAX_TITLE = 200
 MAX_QUERY = 100
+MAX_DUPLICATES = 5
 
 # The single source of truth for the incident workflow.
 # (from, to) -> who may make the move, and whether a reason is required.
@@ -73,6 +74,25 @@ def visible_to(user: dict) -> dict | None:
     if user["role"] in ("engineer", "manager") and user["team_id"] is not None:
         visible["team_id"] = user["team_id"]  # the whole team's queue, assigned or not
     return visible
+
+
+def find_duplicates(req: Request) -> list[dict]:
+    """
+    Possible duplicates of an incident being reported: active incidents with the same category, building
+    and floor, as limited summaries. Any signed-in user, so reporters can spot an existing ticket.
+    """
+    return repository.find_duplicates(**_duplicate_location(req.query), limit=MAX_DUPLICATES)
+
+
+def get_duplicate_summary(req: Request) -> dict:
+    """
+    The summary page a duplicate link opens. Only for an incident that is a possible duplicate for the
+    category and place given (404 otherwise), so it can't be used to browse incidents outside your scope.
+    """
+    summary = repository.get_duplicate(req.params["id"], **_duplicate_location(req.query))
+    if summary is None:
+        raise NotFound("Incident not found")
+    return summary
 
 
 def create_incident(req: Request) -> dict:
@@ -290,6 +310,23 @@ def _list_filters(query: dict) -> tuple[dict, dict]:
     elif value["q"]:
         filters["q"] = value["q"]
     return filters, details
+
+
+def _duplicate_location(query: dict) -> dict:
+    """category_id and building_id (required) and floor_id (optional) from the query string; 400 naming each bad one."""
+    location, details = {}, {}
+    for name in ("category_id", "building_id", "floor_id"):
+        value = (query.get(name) or "").strip()
+        if not value and name == "floor_id":
+            location[name] = None
+        elif value.isdigit() and int(value) > 0:
+            location[name] = int(value)
+        else:
+            rule = "must be" if name == "floor_id" else "is required and must be"
+            details[name] = f"{name} {rule} a positive integer"
+    if details:
+        raise BadRequest(details=details)
+    return location
 
 
 def _field_error(exc: pg_errors.Error) -> Exception:
