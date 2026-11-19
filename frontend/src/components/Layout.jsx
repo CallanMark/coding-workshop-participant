@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { to: (user) => `/dashboard/engineers/${user.id}`, label: 'My dashboard', roles: ['engineer'] },
   { to: '/incidents/mine', label: 'My incidents' },
   { to: '/incidents', label: 'Incidents', end: true },
+  { to: '/admin/engineers', label: 'Engineers', roles: AREA_ROLES['/admin'] },
   { to: '/admin/facilities', label: 'Facilities', roles: AREA_ROLES['/admin'] },
 ];
 

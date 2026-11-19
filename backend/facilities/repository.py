@@ -6,7 +6,7 @@ quoted with psycopg's sql module.
 
 from psycopg import sql
 
-from common.db import get_conn
+from common.db import get_conn, update_row
 
 # Table -> columns callers may write.
 TABLES = {
@@ -120,14 +120,7 @@ def insert(table: str, fields: dict) -> dict:
 def update(table: str, row_id: int, fields: dict) -> dict | None:
     """Change a row's columns and return it, or None if it does not exist."""
     _check(table, fields)
-    query = sql.SQL("UPDATE {} SET {} WHERE id = {} RETURNING *").format(
-        sql.Identifier(table),
-        sql.SQL(", ").join(
-            sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder(column)) for column in fields
-        ),
-        sql.Placeholder("id"),
-    )
-    return get_conn().execute(query, {**fields, "id": row_id}).fetchone()
+    return update_row(table, row_id, fields)
 
 
 def delete(table: str, row_id: int) -> bool:

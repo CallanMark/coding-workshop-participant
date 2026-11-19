@@ -419,7 +419,7 @@ def list_engineers(req: Request) -> list[dict]:
         if team_id not in (None, req.user["team_id"]):
             raise NotFound("Team not found")
         team_id = req.user["team_id"]
-    return repository.list_engineers(team_id)
+    return lookups.list_engineers(team_id)
 
 
 def engineer_feedback(req: Request) -> dict:

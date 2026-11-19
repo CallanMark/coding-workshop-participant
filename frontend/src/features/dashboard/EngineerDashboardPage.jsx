@@ -16,9 +16,10 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { getEngineerDashboard } from '../../api/analytics';
 import { hasRole, useAuth } from '../../context/auth';
+import Loaded from '../../components/Loaded';
 import useApiList from '../../hooks/useApiList';
 import {
-  DashboardGrid, Loaded, Section, WindowPicker,
+  DashboardGrid, Section, WindowPicker,
 } from './DashboardParts';
 import DashboardSummary from './DashboardSummary';
 import { formatAge } from './format';

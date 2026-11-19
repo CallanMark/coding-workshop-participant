@@ -132,7 +132,7 @@ def repo(monkeypatch):
         state["engineer_calls"].append(team_id)
         return [{"id": 4, "name": "Fred Facilities", "team_id": 1}]
 
-    monkeypatch.setattr(repository, "list_engineers", list_engineers)
+    monkeypatch.setattr(lookups, "list_engineers", list_engineers)
     monkeypatch.setattr(service, "transaction", nullcontext)
     return state
 

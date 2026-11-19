@@ -102,6 +102,22 @@ describe('RequireAuth', () => {
     expect(screen.getByRole('link', { name: 'My dashboard' })).toHaveAttribute('href', '/dashboard/engineers/5');
   });
 
+  it('shows the Engineers link to admins only', () => {
+    const morgan = {
+      id: 7, name: 'Morgan Manager', email: 'morgan@acme.inc', role: 'manager', team_id: 2,
+    };
+    stubMe(200, morgan);
+    saveSession({ token: 'jwt', user: morgan });
+    const { unmount } = renderApp('/incidents');
+    expect(screen.queryByRole('link', { name: 'Engineers' })).not.toBeInTheDocument();
+    unmount();
+
+    stubMe(200, ADMIN);
+    saveSession({ token: 'jwt', user: ADMIN });
+    renderApp('/incidents');
+    expect(screen.getByRole('link', { name: 'Engineers' })).toHaveAttribute('href', '/admin/engineers');
+  });
+
   it('signs out with a message when the stored session has expired', async () => {
     stubMe(401, { error: { message: 'Your session has expired. Please sign in again.' } });
     saveSession({ token: 'expired', user: EVE });

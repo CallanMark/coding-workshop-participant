@@ -9,7 +9,7 @@ import re
 import time
 from pathlib import Path
 
-from psycopg import Connection, OperationalError, Transaction, connect
+from psycopg import Connection, OperationalError, Transaction, connect, sql
 from psycopg.rows import dict_row
 
 from common.auth import hash_password
@@ -72,6 +72,34 @@ def transaction() -> Transaction:
     return get_conn().transaction()
 
 
+def _identifiers(names) -> sql.Composed:
+    """Table or column names as a quoted, comma-separated SQL list (never pasted into the query text)."""
+    return sql.SQL(", ").join(sql.Identifier(name) for name in names)
+
+
+def check_columns(fields: dict, allowed) -> None:
+    """Column names end up in SQL text, so only known ones may appear: ValueError for any other."""
+    unknown = set(fields) - set(allowed)
+    if unknown:
+        raise ValueError(f"Unknown column(s): {sorted(unknown)}")
+
+
+def update_row(table: str, row_id: int, fields: dict) -> dict | None:
+    """
+    Set the given columns on one row and return it (None if there is no such row).
+    Callers check `table` and the column names against their own whitelist first (see check_columns);
+    psycopg quotes them as identifiers and every value stays a parameter.
+    """
+    query = sql.SQL("UPDATE {} SET {} WHERE id = {} RETURNING *").format(
+        sql.Identifier(table),
+        sql.SQL(", ").join(
+            sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder(column)) for column in fields
+        ),
+        sql.Placeholder("id"),
+    )
+    return get_conn().execute(query, {**fields, "id": row_id}).fetchone()
+
+
 def ensure_schema() -> None:
     """
     Apply schema.sql once per container, then (when SEED_ON_EMPTY=true) seed an empty database or reload
@@ -115,7 +143,7 @@ def drop_empty_leftover_tables(conn: Connection) -> bool:
         return False
     if found["incidents"] and conn.execute("SELECT EXISTS (SELECT 1 FROM incidents) AS any").fetchone()["any"]:
         return False
-    conn.execute(f"DROP TABLE IF EXISTS {', '.join(APP_TABLES)} CASCADE")
+    conn.execute(sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(_identifiers(APP_TABLES)))
     logger.warning("Dropped empty leftover tables so the current schema can be created")
     return True
 
@@ -138,12 +166,12 @@ def seed_if_needed(conn: Connection) -> bool:
     """
     if os.getenv("SEED_ON_EMPTY", "false") != "true" or not SEED_FILE.exists():
         return False
-    sql = SEED_FILE.read_text()
+    seed_sql = SEED_FILE.read_text()
     has_users = conn.execute("SELECT count(*) AS n FROM users").fetchone()["n"] > 0
     if has_users:
         row = conn.execute("SELECT value FROM app_meta WHERE key = 'seed_version'").fetchone()
         current = int(row["value"]) if row else 0
-        if current >= seed_version(sql):
+        if current >= seed_version(seed_sql):
             return False
     password = os.getenv("SEED_PASSWORD")
     if not IS_LOCAL and not password:
@@ -151,11 +179,11 @@ def seed_if_needed(conn: Connection) -> bool:
         return False
 
     if has_users:
-        logger.warning("Replacing the demo data with seed version %s", seed_version(sql))
-        conn.execute(f"TRUNCATE {', '.join(SEEDED_TABLES)} RESTART IDENTITY CASCADE")
-    conn.execute(sql)
+        logger.warning("Replacing the demo data with seed version %s", seed_version(seed_sql))
+        conn.execute(sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(_identifiers(SEEDED_TABLES)))
+    conn.execute(seed_sql)
     if password:
         for row in conn.execute("SELECT id FROM users").fetchall():
             conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", (hash_password(password), row["id"]))
-    logger.info("Seeded the database (seed version %s)", seed_version(sql))
+    logger.info("Seeded the database (seed version %s)", seed_version(seed_sql))
     return True

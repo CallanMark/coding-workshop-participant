@@ -3,9 +3,7 @@ Incidents repository: SQL only. No rules, no permissions, no HTTP.
 Every query uses parameters; callers wrap multi-step writes in common.db.transaction().
 """
 
-from psycopg import sql
-
-from common.db import get_conn
+from common.db import check_columns, get_conn, update_row
 from common.domain import ACTIVE_STATUSES
 
 # Incident columns plus display names for related rows.
@@ -44,7 +42,7 @@ def scope_where(visible: dict | None, mine_user_id: int | None, filters: dict | 
     """
     clauses, params = [], {}
     if visible is not None:
-        _check_columns(visible, SCOPE_COLUMNS)
+        check_columns(visible, SCOPE_COLUMNS)
         any_of = [f"i.{column} = %(scope_{column})s" for column in visible]
         clauses.append("(" + " OR ".join(any_of) + ")" if any_of else "FALSE")
         params.update({f"scope_{column}": value for column, value in visible.items()})
@@ -53,7 +51,7 @@ def scope_where(visible: dict | None, mine_user_id: int | None, filters: dict | 
         params["mine"] = mine_user_id
     filters = dict(filters or {})
     q = filters.pop("q", None)
-    _check_columns(filters, FILTER_COLUMNS)
+    check_columns(filters, FILTER_COLUMNS)
     for column, value in filters.items():
         if value is None:
             clauses.append(f"i.{column} IS NULL")
@@ -64,13 +62,6 @@ def scope_where(visible: dict | None, mine_user_id: int | None, filters: dict | 
         clauses.append("(i.title ILIKE %(q)s OR i.description ILIKE %(q)s)")
         params["q"] = f"%{_escape_like(q)}%"
     return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
-
-
-def _check_columns(conditions: dict, allowed: tuple[str, ...]) -> None:
-    """Column names are put into SQL text, so only known ones may appear."""
-    unknown = set(conditions) - set(allowed)
-    if unknown:
-        raise ValueError(f"Unknown column(s): {sorted(unknown)}")
 
 
 def _escape_like(text: str) -> str:
@@ -152,13 +143,8 @@ def insert_incident(fields: dict) -> dict:
 
 def update_incident(incident_id: int, fields: dict) -> None:
     """Write the given columns (keys must be in UPDATABLE_COLUMNS)."""
-    _check_columns(fields, UPDATABLE_COLUMNS)
-    # psycopg's sql module quotes each column as an identifier; values stay parameters.
-    assignments = sql.SQL(", ").join(
-        sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder(column)) for column in fields
-    )
-    query = sql.SQL("UPDATE incidents SET {} WHERE id = {}").format(assignments, sql.Placeholder("id"))
-    get_conn().execute(query, {**fields, "id": incident_id})
+    check_columns(fields, UPDATABLE_COLUMNS)
+    update_row("incidents", incident_id, fields)
 
 
 def delete_incident(incident_id: int) -> bool:
@@ -287,21 +273,6 @@ def save_feedback(incident_id: int, reporter_id: int, engineer_id: int, rating: 
         """,
         (incident_id, reporter_id, engineer_id, rating, comment),
     )
-
-
-def list_engineers(team_id: int | None) -> list[dict]:
-    """Active engineers (all, or one team's), by name, with availability and how many active incidents they hold."""
-    query = """
-        SELECT u.id, u.name, u.team_id, t.name AS team_name, u.is_available,
-               (SELECT count(*) FROM incidents i
-                 WHERE i.assignee_id = u.id AND i.status = ANY(%(active)s)) AS open_incidents
-        FROM users u
-        JOIN teams t ON t.id = u.team_id
-        WHERE u.role = 'engineer' AND u.is_active
-          AND (%(team_id)s::int IS NULL OR u.team_id = %(team_id)s)
-        ORDER BY u.name, u.id
-    """
-    return get_conn().execute(query, {"team_id": team_id, "active": list(ACTIVE_STATUSES)}).fetchall()
 
 
 def list_engineer_feedback(engineer_id: int) -> list[dict]:

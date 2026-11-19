@@ -2,7 +2,7 @@
 Auth repository: SQL only. No rules, no permissions, no HTTP.
 """
 
-from common.db import get_conn
+from common.db import check_columns, get_conn, update_row
 
 # The user fields safe to send to the client (never password_hash).
 PUBLIC_USER_SELECT = """
@@ -26,7 +26,7 @@ def get_credentials(email: str) -> dict | None:
 
 
 def insert_user(fields: dict) -> int:
-    """Insert a user and return the new id."""
+    """Insert a user and return the new id. A team_id that doesn't exist raises ForeignKeyViolation."""
     row = get_conn().execute(
         """
         INSERT INTO users (email, password_hash, name, role, team_id, created_by)
@@ -36,3 +36,13 @@ def insert_user(fields: dict) -> int:
         fields,
     ).fetchone()
     return row["id"]
+
+
+# The engineer profile fields an admin may change.
+ENGINEER_COLUMNS = ("name", "team_id", "is_available", "is_active")
+
+
+def update_engineer(user_id: int, fields: dict) -> None:
+    """Write the given profile columns (keys must be in ENGINEER_COLUMNS)."""
+    check_columns(fields, ENGINEER_COLUMNS)
+    update_row("users", user_id, fields)
