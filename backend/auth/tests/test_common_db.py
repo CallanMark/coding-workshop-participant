@@ -30,6 +30,7 @@ class FakeConn:
         self.password_updates = []
 
     def execute(self, sql, params=None):
+        sql = sql if isinstance(sql, str) else sql.as_string(None)  # composed queries as text
         self.statements.append(sql)
         if sql.startswith("SELECT count(*)"):
             return FakeResult([{"n": self.user_count}])
@@ -162,6 +163,7 @@ class LeftoverConn:
         self.statements = []
 
     def execute(self, sql, params=None):
+        sql = sql if isinstance(sql, str) else sql.as_string(None)  # composed queries as text
         self.statements.append(sql)
         if "to_regclass" in sql:
             return FakeResult([{"users": "users" in self.tables, "incidents": "incidents" in self.tables}])
@@ -222,3 +224,9 @@ def test_recently_used_connection_is_not_rechecked(monkeypatch):
     monkeypatch.setattr(db, "_last_used", db.time.monotonic())
     monkeypatch.setattr(db, "connect", lambda *a, **k: "fresh connection")
     assert db.get_conn() is conn  # no SELECT 1 on every call within a request
+
+
+def test_only_whitelisted_columns_reach_sql():
+    db.check_columns({"name": "x", "is_active": False}, ("name", "is_active"))
+    with pytest.raises(ValueError, match="password_hash"):
+        db.check_columns({"name": "x", "password_hash": "y"}, ("name",))
