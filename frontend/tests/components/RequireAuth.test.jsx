@@ -86,6 +86,22 @@ describe('RequireAuth', () => {
     expect(screen.getByRole('link', { name: 'Facilities' })).toHaveAttribute('href', '/admin/facilities');
   });
 
+  it('shows dashboard links to staff only, and My dashboard to engineers', () => {
+    saveSession({ token: 'jwt', user: EVE });
+    const { unmount } = renderApp('/incidents');
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    unmount();
+
+    const tina = {
+      id: 5, name: 'Tina Tech', email: 'tina@acme.inc', role: 'engineer', team_id: 2,
+    };
+    stubMe(200, tina);
+    saveSession({ token: 'jwt', user: tina });
+    renderApp('/incidents');
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
+    expect(screen.getByRole('link', { name: 'My dashboard' })).toHaveAttribute('href', '/dashboard/engineers/5');
+  });
+
   it('signs out with a message when the stored session has expired', async () => {
     stubMe(401, { error: { message: 'Your session has expired. Please sign in again.' } });
     saveSession({ token: 'expired', user: EVE });

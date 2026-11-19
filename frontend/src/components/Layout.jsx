@@ -5,12 +5,15 @@ import Container from '@mui/material/Container';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { hasRole, useAuth } from '../context/auth';
+import { AREA_ROLES, hasRole, useAuth } from '../context/auth';
 
+// `to` may depend on the user (e.g. their own dashboard).
 const NAV_LINKS = [
+  { to: '/dashboard', label: 'Dashboard', roles: AREA_ROLES['/dashboard'], end: true },
+  { to: (user) => `/dashboard/engineers/${user.id}`, label: 'My dashboard', roles: ['engineer'] },
   { to: '/incidents/mine', label: 'My incidents' },
   { to: '/incidents', label: 'Incidents', end: true },
-  { to: '/admin/facilities', label: 'Facilities', roles: ['admin'] },
+  { to: '/admin/facilities', label: 'Facilities', roles: AREA_ROLES['/admin'] },
 ];
 
 /**
@@ -45,7 +48,9 @@ function UserMenu() {
  */
 export default function Layout() {
   const { user } = useAuth();
-  const links = NAV_LINKS.filter(({ roles }) => !roles || hasRole(user, ...roles));
+  const links = NAV_LINKS
+    .filter(({ roles }) => !roles || hasRole(user, ...roles))
+    .map((link) => ({ ...link, to: typeof link.to === 'function' ? link.to(user) : link.to }));
   return (
     <>
       <AppBar position="static" elevation={0}>

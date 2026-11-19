@@ -1,5 +1,6 @@
 /**
- * Load a list from the API for a key (e.g. a building id), with loading, error and retry states.
+ * Load data from the API for a key (a building id, a dashboard and window, ...), with loading, error and retry
+ * states. `data` is [] until loaded, so lists can render straight away; check `status` before using an object.
  */
 import { useEffect, useState } from 'react';
 

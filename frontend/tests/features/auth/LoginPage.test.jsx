@@ -26,6 +26,7 @@ function renderLogin(entry = '/login') {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/incidents/mine" element={<p>My incidents page</p>} />
           <Route path="/incidents" element={<p>All incidents page</p>} />
+          <Route path="/dashboard" element={<p>Dashboard page</p>} />
         </Routes>
       </AuthProvider>
     </MemoryRouter>,
@@ -78,6 +79,20 @@ describe('LoginPage', () => {
     expect(loadSession()).toEqual({ token: 'jwt', user: EVE });
   });
 
+  it('takes engineers, managers and admins to the team dashboard', async () => {
+    const fred = {
+      id: 4, name: 'Fred Facilities', email: 'fred@acme.inc', role: 'engineer', team_id: 1,
+    };
+    login.mockResolvedValue({ token: 'jwt', user: fred });
+    renderLogin();
+
+    await userEvent.type(screen.getByLabelText(/email/i), 'fred@acme.inc');
+    await userEvent.type(screen.getByLabelText(/password/i), 'Password123!');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    expect(await screen.findByText('Dashboard page')).toBeInTheDocument();
+  });
+
   it('returns to the page the user was trying to open', async () => {
     login.mockResolvedValue({ token: 'jwt', user: EVE });
     renderLogin({ pathname: '/login', state: { from: { pathname: '/incidents', search: '' } } });
@@ -87,6 +102,17 @@ describe('LoginPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     expect(await screen.findByText('All incidents page')).toBeInTheDocument();
+  });
+
+  it("ignores a page left by someone else that the new user's role can't open", async () => {
+    login.mockResolvedValue({ token: 'jwt', user: EVE });
+    renderLogin({ pathname: '/login', state: { from: { pathname: '/dashboard', search: '?days=7' } } });
+
+    await userEvent.type(screen.getByLabelText(/email/i), 'eve@acme.inc');
+    await userEvent.type(screen.getByLabelText(/password/i), 'Password123!');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    expect(await screen.findByText('My incidents page')).toBeInTheDocument();
   });
 
   it('sends an already signed-in user straight on', async () => {

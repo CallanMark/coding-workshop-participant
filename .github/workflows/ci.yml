@@ -55,6 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Seed matches its generator
+        run: python3 bin/generate_seed.py --check
+
       - name: Apply schema and seed
         run: ./bin/init-db.sh
 

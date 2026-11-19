@@ -11,7 +11,7 @@ import {
 } from '../../api/facilities';
 import { BuildingSelect, FloorSelect } from './FacilityFields';
 import FacilitySection from './FacilitySection';
-import useApiList from './useApiList';
+import useApiList from '../../hooks/useApiList';
 
 const TABS = [
   { value: 'buildings', label: 'Buildings' },

@@ -134,3 +134,9 @@ CREATE INDEX IF NOT EXISTS incidents_location_idx  ON incidents (building_id, fl
 CREATE INDEX IF NOT EXISTS incident_notes_inc_idx  ON incident_notes (incident_id);
 CREATE INDEX IF NOT EXISTS incident_events_inc_idx ON incident_events (incident_id, created_at);
 CREATE INDEX IF NOT EXISTS incident_feedback_engineer_idx ON incident_feedback (engineer_id);
+
+-- Small key/value facts about the database itself, e.g. which version of seed.sql it holds.
+CREATE TABLE IF NOT EXISTS app_meta (
+  key   text PRIMARY KEY,
+  value text NOT NULL
+);

@@ -8,19 +8,18 @@ from datetime import UTC, datetime
 from psycopg import errors as pg_errors
 
 import repository
+from common import lookups
 from common.db import transaction
+from common.domain import ACTIVE_STATUSES, PRIORITIES, STATUSES
 from common.errors import BadRequest, Conflict, Forbidden, NotFound
 from common.http import Request
 
-PRIORITIES = ("low", "medium", "high", "critical")
-STATUSES = ("open", "in_progress", "blocked", "resolved", "closed")
 MAX_TITLE = 200
 MAX_QUERY = 100
 MAX_DUPLICATES = 5
 MAX_COMMENT = 1000
 MAX_NOTE = 2000
 FEEDBACK_STATUSES = ("resolved", "closed")  # feedback is about completed work
-ACTIVE_STATUSES = ("open", "in_progress", "blocked")  # work still to do
 
 # The single source of truth for the incident workflow.
 # (from, to) -> who may make the move, and whether a reason is required.
@@ -224,7 +223,7 @@ def assign_incident(req: Request) -> dict:
             raise Conflict("Work has started: assign another engineer instead of unassigning")
 
         if assignee_id is not None:
-            _check_assignee(repository.get_user(assignee_id), incident["team_id"])
+            _check_assignee(lookups.get_user(assignee_id), incident["team_id"])
         now = datetime.now(UTC)
         changes = {"assignee_id": assignee_id, "assigned_at": now if assignee_id else None, "updated_at": now}
         if self_assign and incident["acknowledged_at"] is None:
@@ -428,7 +427,7 @@ def engineer_feedback(req: Request) -> dict:
     All feedback on one engineer's work with their average rating: for their team's manager or an admin
     (route allows only those roles). An engineer outside the manager's team is 404.
     """
-    engineer = repository.get_user(req.params["id"])
+    engineer = lookups.get_user(req.params["id"])
     if engineer is None or engineer["role"] != "engineer":
         raise NotFound("Engineer not found")
     if req.user["role"] == "manager" and req.user["team_id"] != engineer["team_id"]:

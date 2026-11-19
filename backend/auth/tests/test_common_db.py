@@ -1,4 +1,4 @@
-"""Unit tests for common/db.py: seeding an empty database and retrying the first connection."""
+"""Unit tests for common/db.py: seeding (empty database or older seed version) and retrying the first connection."""
 
 import pytest
 from psycopg import OperationalError
@@ -21,10 +21,11 @@ class FakeResult:
 
 
 class FakeConn:
-    """Records every statement; answers the user count and id queries."""
+    """Records every statement; answers the user count, seed version and id queries."""
 
-    def __init__(self, user_count):
+    def __init__(self, user_count, seed_version=None):
         self.user_count = user_count
+        self.seed_version = seed_version  # the app_meta row; None = no row
         self.statements = []
         self.password_updates = []
 
@@ -32,6 +33,8 @@ class FakeConn:
         self.statements.append(sql)
         if sql.startswith("SELECT count(*)"):
             return FakeResult([{"n": self.user_count}])
+        if sql.startswith("SELECT value FROM app_meta"):
+            return FakeResult([] if self.seed_version is None else [{"value": str(self.seed_version)}])
         if sql.startswith("SELECT id FROM users"):
             return FakeResult([{"id": 1}, {"id": 2}])
         if sql.startswith("UPDATE users SET password_hash"):
@@ -42,19 +45,29 @@ class FakeConn:
     def ran_seed(self):
         return any("INSERT INTO users" in s for s in self.statements)
 
+    @property
+    def wiped(self):
+        return any(s.startswith("TRUNCATE") for s in self.statements)
+
+
+SEED_SQL = "-- seed-version: 3\nINSERT INTO users (id) VALUES (1);\n"
+
 
 @pytest.fixture
-def cloud(monkeypatch):
-    """Cloud settings: seeding enabled, not local."""
+def cloud(monkeypatch, tmp_path):
+    """Cloud settings: seeding enabled, not local, and a seed.sql at version 3."""
     monkeypatch.setenv("SEED_ON_EMPTY", "true")
     monkeypatch.setattr(db, "IS_LOCAL", False)
+    seed = tmp_path / "seed.sql"
+    seed.write_text(SEED_SQL)
+    monkeypatch.setattr(db, "SEED_FILE", seed)
 
 
 def test_seeds_empty_cloud_db_with_seed_password(cloud, monkeypatch):
     monkeypatch.setenv("SEED_PASSWORD", "cloud-secret-123")
     conn = FakeConn(user_count=0)
 
-    assert db.seed_if_empty(conn) is True
+    assert db.seed_if_needed(conn) is True
     assert conn.ran_seed
     # Every seeded user gets its own hash of the secret, never the dev password
     hashes = [h for h, _ in conn.password_updates]
@@ -63,27 +76,56 @@ def test_seeds_empty_cloud_db_with_seed_password(cloud, monkeypatch):
     assert all(verify_password("cloud-secret-123", h) for h in hashes)
 
 
-def test_never_seeds_a_database_that_has_users(cloud, monkeypatch):
+@pytest.mark.parametrize("version", [3, 4], ids=["same version", "newer version"])
+def test_leaves_a_database_with_the_current_or_a_newer_seed(cloud, monkeypatch, version):
     monkeypatch.setenv("SEED_PASSWORD", "cloud-secret-123")
-    conn = FakeConn(user_count=3)
-    assert db.seed_if_empty(conn) is False
-    assert not conn.ran_seed
+    conn = FakeConn(user_count=3, seed_version=version)
+    assert db.seed_if_needed(conn) is False
+    assert not conn.ran_seed and not conn.wiped
+
+
+@pytest.mark.parametrize("version", [None, 2], ids=["seeded before versions", "older version"])
+def test_replaces_an_older_seed(cloud, monkeypatch, version):
+    monkeypatch.setenv("SEED_PASSWORD", "cloud-secret-123")
+    conn = FakeConn(user_count=3, seed_version=version)
+
+    assert db.seed_if_needed(conn) is True
+    wipe = next(i for i, s in enumerate(conn.statements) if s.startswith("TRUNCATE"))
+    seed = next(i for i, s in enumerate(conn.statements) if "INSERT INTO users" in s)
+    assert wipe < seed
+    assert "app_meta" not in conn.statements[wipe]  # the version row is rewritten by the seed, not wiped
+    assert all(verify_password("cloud-secret-123", h) for h, _ in conn.password_updates)
+
+
+def test_keeps_the_data_when_a_reseed_has_no_password(cloud, monkeypatch):
+    monkeypatch.delenv("SEED_PASSWORD", raising=False)
+    conn = FakeConn(user_count=3, seed_version=2)
+    assert db.seed_if_needed(conn) is False
+    assert not conn.wiped and not conn.ran_seed
+
+
+def test_reads_the_seed_version_line():
+    assert db.seed_version(SEED_SQL) == 3
+    assert db.seed_version("INSERT INTO users (id) VALUES (1);") == 0
 
 
 def test_cloud_without_seed_password_does_not_seed(cloud, monkeypatch):
     monkeypatch.delenv("SEED_PASSWORD", raising=False)
     conn = FakeConn(user_count=0)
-    assert db.seed_if_empty(conn) is False
+    assert db.seed_if_needed(conn) is False
     assert not conn.ran_seed
 
 
-def test_local_seeds_with_dev_passwords(monkeypatch):
+def test_local_seeds_with_dev_passwords(monkeypatch, tmp_path):
     monkeypatch.setenv("SEED_ON_EMPTY", "true")
+    seed = tmp_path / "seed.sql"
+    seed.write_text(SEED_SQL)
+    monkeypatch.setattr(db, "SEED_FILE", seed)
     monkeypatch.delenv("SEED_PASSWORD", raising=False)
     monkeypatch.setattr(db, "IS_LOCAL", True)
     conn = FakeConn(user_count=0)
 
-    assert db.seed_if_empty(conn) is True
+    assert db.seed_if_needed(conn) is True
     assert conn.ran_seed
     assert conn.password_updates == []
 
@@ -91,7 +133,7 @@ def test_local_seeds_with_dev_passwords(monkeypatch):
 def test_seeding_disabled_by_default(monkeypatch):
     monkeypatch.delenv("SEED_ON_EMPTY", raising=False)
     conn = FakeConn(user_count=0)
-    assert db.seed_if_empty(conn) is False
+    assert db.seed_if_needed(conn) is False
     assert conn.statements == []
 
 
