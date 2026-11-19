@@ -298,6 +298,21 @@ def get_user(user_id: int) -> dict | None:
     ).fetchone()
 
 
+def list_engineers(team_id: int | None) -> list[dict]:
+    """Active engineers (all, or one team's), by name, with availability and how many active incidents they hold."""
+    query = """
+        SELECT u.id, u.name, u.team_id, t.name AS team_name, u.is_available,
+               (SELECT count(*) FROM incidents i
+                 WHERE i.assignee_id = u.id AND i.status IN ('open', 'in_progress', 'blocked')) AS open_incidents
+        FROM users u
+        JOIN teams t ON t.id = u.team_id
+        WHERE u.role = 'engineer' AND u.is_active
+          AND (%(team_id)s::int IS NULL OR u.team_id = %(team_id)s)
+        ORDER BY u.name, u.id
+    """
+    return get_conn().execute(query, {"team_id": team_id}).fetchall()
+
+
 def list_engineer_feedback(engineer_id: int) -> list[dict]:
     """All feedback on an engineer's work, with the incident title, newest first."""
     query = """

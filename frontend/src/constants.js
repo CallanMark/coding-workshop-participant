@@ -23,6 +23,23 @@ export const NEXT_STATUSES = {
   closed: [],
 };
 
+/**
+ * Who may make each move ("from>to"), mirroring the backend TRANSITIONS dict. Used only to decide which
+ * buttons to show; the server checks every move. "manager" = manager of the incident's team.
+ */
+export const MOVE_WHO = {
+  'open>in_progress': ['assignee', 'manager', 'admin'],
+  'in_progress>blocked': ['assignee', 'manager', 'admin'],
+  'blocked>in_progress': ['assignee', 'manager', 'admin'],
+  'in_progress>resolved': ['assignee', 'manager', 'admin'],
+  'resolved>closed': ['reporter', 'manager', 'admin'],
+  'resolved>in_progress': ['reporter', 'manager', 'admin'],
+  'open>closed': ['reporter', 'manager', 'admin'],
+};
+
+/** Statuses with work still to do. */
+export const ACTIVE_STATUSES = ['open', 'in_progress', 'blocked'];
+
 /** Moves that need a reason ("from>to"); mirrors the backend. */
 export const REASON_REQUIRED = new Set(['in_progress>blocked', 'resolved>in_progress', 'open>closed']);
 

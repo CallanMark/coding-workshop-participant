@@ -1,7 +1,9 @@
 import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
-import { changeIncidentStatus, createIncident, listIncidents } from '../../src/api/incidents';
+import {
+  changeIncidentStatus, createIncident, findDuplicates, getIncident, getIncidentSummary, listEngineers, listIncidents, locationQuery,
+} from '../../src/api/incidents';
 
 /** The path and parsed body of the one fetch call made. */
 function sent(fetchMock) {
@@ -37,5 +39,39 @@ describe('incidents API', () => {
   it('creates an incident with only what the form provides', async () => {
     await createIncident({ title: 'Leak', category_id: 1, building_id: 1 });
     expect(sent(fetchMock).body).toEqual({ title: 'Leak', category_id: 1, building_id: 1 });
+  });
+
+  it('gets one incident by id', async () => {
+    await getIncident(7);
+    expect(sent(fetchMock).path).toBe('/incidents/7');
+  });
+
+  it('checks duplicates by category, building and floor', async () => {
+    await findDuplicates({ category_id: 1, building_id: 2, floor_id: 3 });
+    expect(sent(fetchMock).path).toBe('/incidents/duplicates?category_id=1&building_id=2&floor_id=3');
+  });
+
+  it('leaves out an empty floor (no floor matches no floor on the server)', () => {
+    expect(locationQuery({ category_id: '1', building_id: '2', floor_id: '' })).toBe('category_id=1&building_id=2');
+  });
+
+  it('asks for a summary with the same place it was found for', async () => {
+    await getIncidentSummary(5, { category_id: 1, building_id: 2 });
+    expect(sent(fetchMock).path).toBe('/incidents/5/summary?category_id=1&building_id=2');
+  });
+
+  it('sends only the filters that are set', async () => {
+    await listIncidents({ status: 'open', assignee_id: 'none', priority: '', q: '  wi-fi  ', escalated: undefined });
+    expect(sent(fetchMock).path).toBe('/incidents?status=open&assignee_id=none&q=wi-fi');
+  });
+
+  it('combines mine with filters', async () => {
+    await listIncidents({ mine: true, status: 'blocked' });
+    expect(sent(fetchMock).path).toBe('/incidents?mine=true&status=blocked');
+  });
+
+  it('lists one team\'s engineers for the assign dropdown', async () => {
+    await listEngineers(2);
+    expect(sent(fetchMock).path).toBe('/incidents/engineers?team_id=2');
   });
 });

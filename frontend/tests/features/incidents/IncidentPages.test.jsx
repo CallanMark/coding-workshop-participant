@@ -10,8 +10,9 @@ import IncidentCreatePage from '../../../src/features/incidents/IncidentCreatePa
 import IncidentListPage from '../../../src/features/incidents/IncidentListPage';
 import MyIncidentsPage from '../../../src/features/incidents/MyIncidentsPage';
 
-vi.mock('../../../src/api/incidents', () => ({
-  listIncidents: vi.fn(), createIncident: vi.fn(), changeIncidentStatus: vi.fn(),
+vi.mock('../../../src/api/incidents', async (importOriginal) => ({
+  ...(await importOriginal()), // keeps pure helpers such as locationQuery
+  listIncidents: vi.fn(), createIncident: vi.fn(), changeIncidentStatus: vi.fn(), findDuplicates: vi.fn(),
 }));
 
 const USERS = {
@@ -55,7 +56,7 @@ describe('incident pages use the signed-in user', () => {
   ])('the list title says what a %s sees', async (role, title) => {
     renderAs(USERS[role], <IncidentListPage />);
     expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
-    expect(listIncidents).toHaveBeenCalledWith();
+    expect(listIncidents).toHaveBeenCalledWith({}); // no filters: everything the role may see
   });
 
   it('the report form never asks who the reporter is', async () => {

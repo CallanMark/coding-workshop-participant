@@ -42,6 +42,8 @@ ROUTES = [
     Route("PUT", "/{id}/feedback", service.save_feedback),
     # Reporter, the engineer's manager or admin (403 for anyone else, including the engineer).
     Route("GET", "/{id}/feedback", service.get_feedback),
+    # Manager (own team) or admin: active engineers with availability and workload (the assign dropdown).
+    Route("GET", "/engineers", service.list_engineers, roles=("manager", "admin")),
     # The engineer's team manager or admin: all feedback on their work and the average rating.
     Route("GET", "/engineers/{id}/feedback", service.engineer_feedback, roles=("manager", "admin")),
 ]
