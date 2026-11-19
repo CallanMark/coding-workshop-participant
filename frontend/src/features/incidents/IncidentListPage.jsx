@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useMediaQuery } from 'react-responsive';
-import { Link as RouterLink, useLocation } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useSearchParams } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -19,7 +19,9 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { listIncidents } from '../../api/incidents';
-import { useAuth } from '../../context/auth';
+import { hasRole, useAuth } from '../../context/auth';
+import IncidentFilters from './IncidentFilters';
+import { FILTER_NAMES, hasFilters, readFilters, toApiFilters } from './incidentFilters';
 import { PriorityChip, StatusChip } from '../../components/IncidentChips';
 
 /**
@@ -147,8 +149,8 @@ const LIST_TITLES = {
 };
 
 /**
- * Incidents list page: handles loading, error (with retry), empty and data states.
- * The server decides which incidents the signed-in user may see; the title says which.
+ * Incidents list page: search and filters (kept in the URL), and loading, error (with retry), empty and data states.
+ * The server decides which incidents the signed-in user may see; the title says which. Filters only narrow that.
  */
 export default function IncidentListPage() {
   const { user } = useAuth();
@@ -156,12 +158,17 @@ export default function IncidentListPage() {
   const location = useLocation();
   const createdTitle = location.state?.createdTitle;
   const deletedTitle = location.state?.deletedTitle;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filters = readFilters(searchParams);
+  const filtered = hasFilters(filters);
+  // One string that changes exactly when the API request would.
+  const apiQuery = new URLSearchParams(toApiFilters(filters, user)).toString();
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState({ status: 'loading', incidents: [], error: null });
 
   useEffect(() => {
     let ignore = false;
-    listIncidents()
+    listIncidents(Object.fromEntries(new URLSearchParams(apiQuery)))
       .then((incidents) => {
         if (!ignore) setState({ status: 'success', incidents, error: null });
       })
@@ -171,7 +178,20 @@ export default function IncidentListPage() {
     return () => {
       ignore = true;
     };
-  }, [reloadKey]);
+  }, [apiQuery, reloadKey]);
+
+  const changeFilter = (name, value) => {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set(name, value);
+    else next.delete(name);
+    setSearchParams(next, { replace: true });
+  };
+
+  const clearFilters = () => {
+    const next = new URLSearchParams(searchParams);
+    FILTER_NAMES.forEach((name) => next.delete(name));
+    setSearchParams(next, { replace: true });
+  };
 
   const retry = () => {
     setState((prev) => ({ ...prev, status: 'loading' }));
@@ -190,6 +210,13 @@ export default function IncidentListPage() {
       <Alert severity="error" action={<Button color="inherit" size="small" onClick={retry}>Retry</Button>}>
         {state.error}
       </Alert>
+    );
+  } else if (state.incidents.length === 0 && filtered) {
+    content = (
+      <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
+        <Typography gutterBottom>No incidents match these filters.</Typography>
+        <Button onClick={clearFilters}>Clear filters</Button>
+      </Paper>
     );
   } else if (state.incidents.length === 0) {
     content = (
@@ -223,6 +250,18 @@ export default function IncidentListPage() {
         <Alert severity="info" sx={{ mb: 2 }}>
           Incident &quot;{deletedTitle}&quot; was deleted.
         </Alert>
+      )}
+      <IncidentFilters
+        filters={filters}
+        showMine={hasRole(user, 'engineer', 'manager', 'admin')}
+        onChange={changeFilter}
+        onClear={clearFilters}
+      />
+      {state.status === 'success' && state.incidents.length > 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} role="status">
+          {state.incidents.length} {state.incidents.length === 1 ? 'incident' : 'incidents'}
+          {filtered ? ' match' : ''}
+        </Typography>
       )}
       {content}
     </>

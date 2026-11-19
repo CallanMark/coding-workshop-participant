@@ -5,11 +5,20 @@ import { apiRequest } from './client';
 
 /**
  * List the incidents the signed-in user may see (scoped by role on the server), newest first.
- * @param {{mine?: boolean}} [filters] - mine: only incidents the user reported or is assigned to.
+ * @param {{mine?: boolean, status?: string, priority?: string, assignee_id?: number|string,
+ *   escalated?: boolean|string, category_id?: number|string, building_id?: number|string, q?: string}} [filters]
+ *   mine: only incidents the user reported or is assigned to; assignee_id "none" = unassigned;
+ *   q: text search on title and description. Empty values are left out.
  * @returns {Promise<Array<object>>}
  */
-export function listIncidents({ mine = false } = {}) {
-  return apiRequest(`/incidents${mine ? '?mine=true' : ''}`);
+export function listIncidents({ mine = false, ...filters } = {}) {
+  const params = new URLSearchParams();
+  if (mine) params.set('mine', 'true');
+  Object.entries(filters).forEach(([name, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') params.set(name, String(value).trim());
+  });
+  const query = params.toString();
+  return apiRequest(`/incidents${query ? `?${query}` : ''}`);
 }
 
 /**
@@ -176,4 +185,13 @@ export function getFeedback(id) {
  */
 export function saveFeedback(id, { rating, comment }) {
   return apiRequest(`/incidents/${id}/feedback`, { method: 'PUT', body: { rating, comment } });
+}
+
+/**
+ * Active engineers with availability and workload, for the assign dropdown (team manager or admin).
+ * @param {number} teamId - Managers can only ask for their own team.
+ * @returns {Promise<Array<{id: number, name: string, is_available: boolean, open_incidents: number}>>}
+ */
+export function listEngineers(teamId) {
+  return apiRequest(`/incidents/engineers?team_id=${encodeURIComponent(teamId)}`);
 }
