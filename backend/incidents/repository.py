@@ -30,7 +30,8 @@ SCOPE_COLUMNS = ("reporter_id", "assignee_id", "team_id")
 FILTER_COLUMNS = ("status", "priority", "category_id", "building_id", "assignee_id", "is_escalated")
 # Columns update_incident may write.
 UPDATABLE_COLUMNS = ("title", "description", "priority", "category_id", "team_id", "building_id",
-                     "floor_id", "seat_id", "assignee_id", "assigned_at", "updated_at")
+                     "floor_id", "seat_id", "assignee_id", "assigned_at", "acknowledged_at",
+                     "is_escalated", "escalation_reason", "updated_at")
 
 
 def scope_where(visible: dict | None, mine_user_id: int | None, filters: dict | None = None) -> tuple[str, dict]:
@@ -224,10 +225,10 @@ def save_feedback(incident_id: int, reporter_id: int, engineer_id: int, rating: 
 
 
 def get_user(user_id: int) -> dict | None:
-    """A user's id, name, role and team, or None."""
+    """A user's id, name, role, team and whether they are active and available, or None."""
     return get_conn().execute(
         """
-        SELECT u.id, u.name, u.role, u.team_id, t.name AS team_name
+        SELECT u.id, u.name, u.role, u.team_id, t.name AS team_name, u.is_active, u.is_available
         FROM users u LEFT JOIN teams t ON t.id = u.team_id
         WHERE u.id = %s
         """,

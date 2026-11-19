@@ -9,7 +9,7 @@ from psycopg import errors as pg_errors
 
 import repository
 from common.db import transaction
-from common.errors import BadRequest, Conflict, Forbidden, NotFound, NotImplementedYet
+from common.errors import BadRequest, Conflict, Forbidden, NotFound
 from common.http import Request
 
 PRIORITIES = ("low", "medium", "high", "critical")
@@ -19,6 +19,7 @@ MAX_QUERY = 100
 MAX_DUPLICATES = 5
 MAX_COMMENT = 1000
 FEEDBACK_STATUSES = ("resolved", "closed")  # feedback is about completed work
+ACTIVE_STATUSES = ("open", "in_progress", "blocked")  # work still to do
 
 # The single source of truth for the incident workflow.
 # (from, to) -> who may make the move, and whether a reason is required.
@@ -194,10 +195,83 @@ def update_incident(req: Request) -> dict:
     return repository.get_incident(incident_id)
 
 
+def assign_incident(req: Request) -> dict:
+    """
+    Assign an incident to an engineer, or unassign it (assignee_id null; open incidents only).
+    Team manager or admin: any active, available engineer on the incident's team.
+    Engineer: only themselves, only to an unassigned incident of their own team; it also counts as acknowledging it.
+    """
+    incident_id = req.params["id"]
+    assignee_id = req.body.get("assignee_id")
+    if assignee_id is not None and not _is_id(assignee_id):
+        raise BadRequest(details={"assignee_id": "assignee_id must be an engineer's id, or null to unassign"})
+
+    with transaction():
+        incident = repository.lock_incident(incident_id)
+        relations = _visible_relations(incident, req.user)
+        leads = bool(relations & {"manager", "admin"})
+        self_assign = "team" in relations and req.user["role"] == "engineer" and assignee_id == req.user["id"]
+        if not leads and not self_assign:
+            raise Forbidden("Only the team's manager or an admin can assign; an engineer can only take a ticket")
+        if incident["status"] not in ACTIVE_STATUSES:
+            raise Conflict(f"A {incident['status']} incident cannot be reassigned")
+        if not leads and incident["assignee_id"] is not None:
+            raise Conflict("This incident is already assigned")
+        if assignee_id == incident["assignee_id"]:
+            return repository.get_incident(incident_id)
+        if assignee_id is None and incident["status"] != "open":
+            raise Conflict("Work has started: assign another engineer instead of unassigning")
+
+        if assignee_id is not None:
+            _check_assignee(repository.get_user(assignee_id), incident["team_id"])
+        now = datetime.now(UTC)
+        changes = {"assignee_id": assignee_id, "assigned_at": now if assignee_id else None, "updated_at": now}
+        if self_assign and incident["acknowledged_at"] is None:
+            changes["acknowledged_at"] = now
+        repository.update_incident(incident_id, changes)
+        repository.insert_event(incident_id, req.user["id"], "assigned", _id_text(incident["assignee_id"]),
+                                _id_text(assignee_id))
+    return repository.get_incident(incident_id)
+
+
 def escalate_incident(req: Request) -> dict:
-    """Request (or clear) escalation of an incident, with a required reason."""
-    # TODO: require reason, set is_escalated + escalation_reason, add a note in the same transaction.
-    raise NotImplementedYet(f"Escalating incident {req.params['id']} is not implemented yet")
+    """
+    Escalate an active incident ({"escalate": true, "reason"}: reporter, assignee, team manager or admin),
+    or clear the escalation ({"escalate": false}: team manager or admin).
+    """
+    incident_id = req.params["id"]
+    escalate = req.body.get("escalate")
+    reason = _text(req.body.get("reason"))
+    details = {}
+    if not isinstance(escalate, bool):
+        details["escalate"] = "escalate must be true or false"
+    if escalate is True and not reason:
+        details["reason"] = "Say why this needs escalating"
+    elif len(reason) > MAX_COMMENT:
+        details["reason"] = f"Reason must be at most {MAX_COMMENT} characters"
+    if details:
+        raise BadRequest(details=details)
+
+    with transaction():
+        incident = repository.lock_incident(incident_id)
+        relations = _visible_relations(incident, req.user)
+        allowed = {"reporter", "assignee", "manager", "admin"} if escalate else {"manager", "admin"}
+        if not relations & allowed:
+            who = "reporter, assignee, team manager or an admin" if escalate else "team manager or an admin"
+            raise Forbidden(f"Only the {who} can {'escalate' if escalate else 'clear an escalation'}")
+        if escalate and incident["status"] not in ACTIVE_STATUSES:
+            raise Conflict(f"A {incident['status']} incident cannot be escalated")
+        if incident["is_escalated"] == escalate:
+            raise Conflict("This incident is already escalated" if escalate else "This incident is not escalated")
+
+        repository.update_incident(incident_id, {
+            "is_escalated": escalate,
+            "escalation_reason": reason if escalate else None,
+            "updated_at": datetime.now(UTC),
+        })
+        repository.insert_event(incident_id, req.user["id"], "escalated", str(not escalate).lower(),
+                                str(escalate).lower(), reason or None)
+    return repository.get_incident(incident_id)
 
 
 def delete_incident(req: Request) -> None:
@@ -399,6 +473,21 @@ def _duplicate_location(query: dict) -> dict:
     if details:
         raise BadRequest(details=details)
     return location
+
+
+def _check_assignee(user: dict | None, team_id: int) -> None:
+    """An assignee must be an active, available engineer on the incident's team (400 otherwise)."""
+    if user is None or user["role"] != "engineer" or user["team_id"] != team_id:
+        raise BadRequest(details={"assignee_id": "Choose an engineer from the incident's team"})
+    if not user["is_active"]:
+        raise BadRequest(details={"assignee_id": f"{user['name']} is no longer active"})
+    if not user["is_available"]:
+        raise BadRequest(details={"assignee_id": f"{user['name']} is marked as unavailable"})
+
+
+def _id_text(value: int | None) -> str | None:
+    """An id as stored in incident_events.from_value / to_value."""
+    return None if value is None else str(value)
 
 
 def _field_error(exc: pg_errors.Error) -> Exception:

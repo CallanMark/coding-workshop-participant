@@ -26,7 +26,9 @@ ROUTES = [
     Route("DELETE", "/{id}", service.delete_incident, status=204, roles=("admin",)),
     # Assignee / reporter / team manager / admin, per service.TRANSITIONS.
     Route("POST", "/{id}/status", service.change_status),
-    # Reporter requests; team manager or admin clears. TODO: stub, returns 501.
+    # Team manager or admin assigns anyone on the team; an engineer can take an unassigned team ticket.
+    Route("POST", "/{id}/assign", service.assign_incident, roles=("engineer", "manager", "admin")),
+    # Reporter, assignee, team manager or admin escalates; team manager or admin clears.
     Route("POST", "/{id}/escalate", service.escalate_incident),
     # Reporter only, once resolved or closed. Private: never shown to the engineer.
     Route("PUT", "/{id}/feedback", service.save_feedback),
