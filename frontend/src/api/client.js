@@ -57,6 +57,13 @@ export async function apiRequest(path, { method = 'GET', body } = {}) {
     throw new ApiError('Could not reach the server. Check your connection and try again.', 0);
   }
 
+  // In AWS, CloudFront answers every 404 (the API's too) with the app's index.html and a 200, so app pages
+  // can be opened directly. The API always answers in JSON, so a "success" that isn't JSON was a 404.
+  const type = response.headers?.get?.('content-type') ?? 'application/json';
+  if (response.ok && response.status !== 204 && !type.includes('json')) {
+    throw new ApiError("That couldn't be found. It may have been deleted, or you may not have access to it.", 404);
+  }
+
   const data = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
     const error = data?.error;
