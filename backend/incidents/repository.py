@@ -24,31 +24,59 @@ INCIDENT_SELECT = """
 
 # Columns a visibility rule may match on (never user input: keys come from service.visible_to).
 SCOPE_COLUMNS = ("reporter_id", "assignee_id", "team_id")
+# Columns a list filter may match on exactly (keys come from service._list_filters; None means IS NULL).
+FILTER_COLUMNS = ("status", "priority", "category_id", "building_id", "assignee_id", "is_escalated")
+# Columns update_incident may write.
+UPDATABLE_COLUMNS = ("title", "description", "priority", "category_id", "team_id", "building_id",
+                     "floor_id", "seat_id", "assignee_id", "assigned_at", "updated_at")
 
 
-def scope_where(visible: dict | None, mine_user_id: int | None) -> tuple[str, dict]:
+def scope_where(visible: dict | None, mine_user_id: int | None, filters: dict | None = None) -> tuple[str, dict]:
     """
     The WHERE clause and parameters for a list query.
     `visible`: column -> value, any one matching is enough (None = every incident).
     `mine_user_id`: also require the user to be the reporter or the assignee.
+    `filters`: column -> value, all must match; "q" is a text search on title and description.
     """
     clauses, params = [], {}
     if visible is not None:
-        unknown = set(visible) - set(SCOPE_COLUMNS)
-        if unknown:
-            raise ValueError(f"Unknown scope column(s): {sorted(unknown)}")
+        _check_columns(visible, SCOPE_COLUMNS)
         any_of = [f"i.{column} = %(scope_{column})s" for column in visible]
         clauses.append("(" + " OR ".join(any_of) + ")" if any_of else "FALSE")
         params.update({f"scope_{column}": value for column, value in visible.items()})
     if mine_user_id is not None:
         clauses.append("(i.reporter_id = %(mine)s OR i.assignee_id = %(mine)s)")
         params["mine"] = mine_user_id
+    filters = dict(filters or {})
+    q = filters.pop("q", None)
+    _check_columns(filters, FILTER_COLUMNS)
+    for column, value in filters.items():
+        if value is None:
+            clauses.append(f"i.{column} IS NULL")
+        else:
+            clauses.append(f"i.{column} = %(f_{column})s")
+            params[f"f_{column}"] = value
+    if q:
+        clauses.append("(i.title ILIKE %(q)s OR i.description ILIKE %(q)s)")
+        params["q"] = f"%{_escape_like(q)}%"
     return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
 
 
-def list_incidents(visible: dict | None, mine_user_id: int | None = None) -> list[dict]:
-    """Incidents matching the scope (see scope_where), newest first."""
-    where, params = scope_where(visible, mine_user_id)
+def _check_columns(conditions: dict, allowed: tuple[str, ...]) -> None:
+    """Column names are put into SQL text, so only known ones may appear."""
+    unknown = set(conditions) - set(allowed)
+    if unknown:
+        raise ValueError(f"Unknown column(s): {sorted(unknown)}")
+
+
+def _escape_like(text: str) -> str:
+    """Search for the user's text literally: %, _ and \\ are LIKE wildcards / the escape character."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def list_incidents(visible: dict | None, mine_user_id: int | None = None, filters: dict | None = None) -> list[dict]:
+    """Incidents matching the scope and filters (see scope_where), newest first."""
+    where, params = scope_where(visible, mine_user_id, filters)
     sql = INCIDENT_SELECT + where + " ORDER BY i.created_at DESC, i.id DESC"
     return get_conn().execute(sql, params).fetchall()
 
@@ -81,6 +109,20 @@ def insert_incident(fields: dict) -> dict:
         """,
         fields,
     ).fetchone()
+
+
+def update_incident(incident_id: int, fields: dict) -> None:
+    """Write the given columns (keys must be in UPDATABLE_COLUMNS)."""
+    _check_columns(fields, UPDATABLE_COLUMNS)
+    assignments = ", ".join(f"{column} = %({column})s" for column in fields)
+    sql = "UPDATE incidents SET " + assignments + " WHERE id = %(id)s"  # column names are whitelisted above
+    get_conn().execute(sql, {**fields, "id": incident_id})
+
+
+def delete_incident(incident_id: int) -> bool:
+    """Delete an incident (notes and events cascade). False if it did not exist."""
+    row = get_conn().execute("DELETE FROM incidents WHERE id = %s RETURNING id", (incident_id,)).fetchone()
+    return row is not None
 
 
 def update_status(incident_id: int, fields: dict) -> None:

@@ -11,12 +11,14 @@ from common.http import Route
 
 ROUTES = [
     # Any signed-in user; the list is scoped to the user's role (see service.visible_to). ?mine=true narrows it.
-    Route("GET", "/", service.list_incidents),
+    Route("GET", "/", service.list_incidents),  # filters: see service.list_incidents
+    # Anyone who can see the incident (404 otherwise).
+    Route("GET", "/{id}", service.get_incident),
     # Any signed-in user; the reporter is the signed-in user.
     Route("POST", "/", service.create_incident, status=201),
-    # Reporter (while open), team manager or admin. TODO: stub, returns 501.
+    # Reporter (while open), team manager or admin; only the fields sent change.
     Route("PUT", "/{id}", service.update_incident),
-    # Admin only. TODO: stub, returns 501.
+    # Admin only; notes and events cascade.
     Route("DELETE", "/{id}", service.delete_incident, status=204, roles=("admin",)),
     # Assignee / reporter / team manager / admin, per service.TRANSITIONS.
     Route("POST", "/{id}/status", service.change_status),

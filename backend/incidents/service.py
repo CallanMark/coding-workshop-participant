@@ -14,6 +14,8 @@ from common.http import Request
 
 PRIORITIES = ("low", "medium", "high", "critical")
 STATUSES = ("open", "in_progress", "blocked", "resolved", "closed")
+MAX_TITLE = 200
+MAX_QUERY = 100
 
 # The single source of truth for the incident workflow.
 # (from, to) -> who may make the move, and whether a reason is required.
@@ -38,11 +40,26 @@ CONSTRAINT_ERRORS = {
 
 
 def list_incidents(req: Request) -> list[dict]:
-    """Incidents the signed-in user may see, newest first. ?mine=true: only ones they reported or are assigned."""
+    """
+    Incidents the signed-in user may see, newest first. ?mine=true: only ones they reported or are assigned.
+    Filters: status, priority, category_id, building_id, assignee_id (or "none"), escalated, q (text search).
+    """
     mine = req.query.get("mine", "false")
+    details = {}
     if mine not in ("true", "false"):
-        raise BadRequest(details={"mine": "mine must be true or false"})
-    return repository.list_incidents(visible_to(req.user), req.user["id"] if mine == "true" else None)
+        details["mine"] = "mine must be true or false"
+    filters, filter_errors = _list_filters(req.query)
+    details.update(filter_errors)
+    if details:
+        raise BadRequest(details=details)
+    return repository.list_incidents(visible_to(req.user), req.user["id"] if mine == "true" else None, filters)
+
+
+def get_incident(req: Request) -> dict:
+    """One incident the signed-in user may see (404 otherwise)."""
+    incident = repository.get_incident(req.params["id"])
+    _visible_relations(incident, req.user)
+    return incident
 
 
 def visible_to(user: dict) -> dict | None:
@@ -60,34 +77,8 @@ def visible_to(user: dict) -> dict | None:
 
 def create_incident(req: Request) -> dict:
     """Validate the body and create an incident with status 'open'."""
-    data = req.body
-    details = {}
-    title = _text(data.get("title"))
-    description = _text(data.get("description")) or None
-    if not title:
-        details["title"] = "Title is required"
-    for name in ("category_id", "building_id"):
-        if not _is_id(data.get(name)):
-            details[name] = f"{name} is required and must be an integer"
-    for name in ("floor_id", "seat_id"):
-        if data.get(name) is not None and not _is_id(data[name]):
-            details[name] = f"{name} must be an integer"
-    priority = data.get("priority") or "medium"
-    if priority not in PRIORITIES:
-        details["priority"] = f"Priority must be one of {', '.join(PRIORITIES)}"
-    if details:
-        raise BadRequest(details=details)
-
-    fields = {
-        "title": title,
-        "description": description,
-        "category_id": data["category_id"],
-        "building_id": data["building_id"],
-        "floor_id": data.get("floor_id"),
-        "seat_id": data.get("seat_id"),
-        "reporter_id": req.user["id"],  # always the signed-in user; any reporter_id in the body is ignored
-        "priority": priority,
-    }
+    fields = _incident_fields(req.body, partial=False)
+    fields["reporter_id"] = req.user["id"]  # always the signed-in user; any reporter_id in the body is ignored
     try:
         with transaction():
             # The category routes the incident to its owning team.
@@ -97,10 +88,7 @@ def create_incident(req: Request) -> dict:
             row = repository.insert_incident(fields)
             repository.insert_event(row["id"], fields["reporter_id"], "created", to_value="open")
     except (pg_errors.ForeignKeyViolation, pg_errors.CheckViolation) as exc:
-        field_error = CONSTRAINT_ERRORS.get(exc.diag.constraint_name)
-        if field_error is None:
-            raise
-        raise BadRequest(details=dict([field_error])) from exc
+        raise _field_error(exc) from exc
     return repository.get_incident(row["id"])
 
 
@@ -117,13 +105,7 @@ def change_status(req: Request) -> dict:
 
     with transaction():
         incident = repository.lock_incident(incident_id)
-        if incident is None:
-            raise NotFound("Incident not found")
-
-        relations = _relations(incident, req.user)
-        if not relations:
-            raise NotFound("Incident not found")  # out of scope: don't reveal it exists
-
+        relations = _visible_relations(incident, req.user)
         old_status = incident["status"]
         rule = TRANSITIONS.get((old_status, new_status))
         if rule is None:
@@ -143,9 +125,51 @@ def change_status(req: Request) -> dict:
 
 
 def update_incident(req: Request) -> dict:
-    """Update an incident's details (title, description, category, location, priority)."""
-    # TODO: validate fields like create_incident, check reporter/admin scope, UPDATE ... RETURNING (0 rows → 404).
-    raise NotImplementedYet(f"Updating incident {req.params['id']} is not implemented yet")
+    """
+    Edit an incident's details; only the fields sent are changed. Reporter while open, team manager or admin.
+    A category owned by another team moves the incident to that team (open incidents only) and unassigns it.
+    """
+    incident_id = req.params["id"]
+    changes = _incident_fields(req.body, partial=True)
+    if not changes:
+        raise BadRequest("Send at least one field to change")
+    actor_id = req.user["id"]
+
+    try:
+        with transaction():
+            incident = repository.lock_incident(incident_id)
+            relations = _visible_relations(incident, req.user)
+            if not relations & {"manager", "admin"} and not ("reporter" in relations and incident["status"] == "open"):
+                raise Forbidden("Only the reporter (while open), the team's manager or an admin can edit an incident")
+            if incident["status"] == "closed":
+                raise Conflict("A closed incident cannot be edited")
+
+            if "category_id" in changes:
+                team_id = repository.get_category_team(changes["category_id"])
+                if team_id is None:
+                    raise BadRequest(details={"category_id": "Category does not exist"})
+                if team_id != incident["team_id"]:
+                    if incident["status"] != "open":
+                        raise Conflict("Only an open incident can move to a category owned by another team")
+                    changes.update(team_id=team_id, assignee_id=None, assigned_at=None)
+
+            changes = {name: value for name, value in changes.items() if incident[name] != value}
+            if not changes:
+                return repository.get_incident(incident_id)
+            repository.update_incident(incident_id, {**changes, "updated_at": datetime.now(UTC)})
+
+            if "priority" in changes:
+                repository.insert_event(incident_id, actor_id, "priority_changed",
+                                        incident["priority"], changes["priority"])
+            if "team_id" in changes:
+                repository.insert_event(incident_id, actor_id, "team_changed",
+                                        str(incident["team_id"]), str(changes["team_id"]))
+                if incident["assignee_id"] is not None:
+                    repository.insert_event(incident_id, actor_id, "assigned", str(incident["assignee_id"]), None,
+                                            "Moved to another team")
+    except (pg_errors.ForeignKeyViolation, pg_errors.CheckViolation) as exc:
+        raise _field_error(exc) from exc
+    return repository.get_incident(incident_id)
 
 
 def escalate_incident(req: Request) -> dict:
@@ -155,9 +179,17 @@ def escalate_incident(req: Request) -> dict:
 
 
 def delete_incident(req: Request) -> None:
-    """Delete an incident (its notes cascade)."""
-    # TODO: admin check (403), DELETE ... RETURNING id (0 rows → 404); route responds 204.
-    raise NotImplementedYet(f"Deleting incident {req.params['id']} is not implemented yet")
+    """Delete an incident; its notes and events cascade. Admin only (checked on the route)."""
+    if not repository.delete_incident(req.params["id"]):
+        raise NotFound("Incident not found")
+
+
+def _visible_relations(incident: dict | None, user: dict) -> set[str]:
+    """The user's relations to an incident; 404 if it does not exist or is out of their scope."""
+    relations = _relations(incident, user) if incident else set()
+    if not relations:
+        raise NotFound("Incident not found")  # out of scope: don't reveal that it exists
+    return relations
 
 
 def _relations(incident: dict, user: dict) -> set[str]:
@@ -188,6 +220,82 @@ def _text(value) -> str:
 def _is_id(value) -> bool:
     """A positive integer id. (bool is excluded: in Python True is an int.)"""
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _incident_fields(data: dict, partial: bool) -> dict:
+    """
+    Validated incident fields from a request body (400 naming each bad field).
+    partial=False (create): title, category_id and building_id are required; priority defaults to medium.
+    partial=True (edit): only the fields present are returned. Moving building or floor clears the
+    lower location levels unless they are sent too, so a stale floor or seat never stays behind.
+    """
+    fields, details = {}, {}
+
+    def wanted(name: str) -> bool:
+        return not partial or name in data
+
+    if wanted("title"):
+        fields["title"] = _text(data.get("title"))
+        if not fields["title"]:
+            details["title"] = "Title is required"
+        elif len(fields["title"]) > MAX_TITLE:
+            details["title"] = f"Title must be at most {MAX_TITLE} characters"
+    if wanted("description"):
+        fields["description"] = _text(data.get("description")) or None
+    if wanted("priority"):
+        fields["priority"] = data.get("priority") or (None if partial else "medium")
+        if fields["priority"] not in PRIORITIES:
+            details["priority"] = f"Priority must be one of {', '.join(PRIORITIES)}"
+    for name in ("category_id", "building_id"):
+        if wanted(name):
+            fields[name] = data.get(name)
+            if not _is_id(fields[name]):
+                details[name] = f"{name} is required and must be an integer"
+    cleared = {"floor_id": "building_id" in data, "seat_id": "building_id" in data or "floor_id" in data}
+    for name in ("floor_id", "seat_id"):
+        if wanted(name) or cleared[name]:
+            fields[name] = data.get(name)
+            if fields[name] is not None and not _is_id(fields[name]):
+                details[name] = f"{name} must be an integer"
+    if details:
+        raise BadRequest(details=details)
+    return fields
+
+
+def _list_filters(query: dict) -> tuple[dict, dict]:
+    """List filters from the query string as repository column -> value, plus any field errors. Blank = unset."""
+    filters, details = {}, {}
+    value = {name: (query.get(name) or "").strip() for name in
+             ("status", "priority", "category_id", "building_id", "assignee_id", "escalated", "q")}
+    for name, allowed in (("status", STATUSES), ("priority", PRIORITIES)):
+        if value[name] and value[name] not in allowed:
+            details[name] = f"{name} must be one of {', '.join(allowed)}"
+        elif value[name]:
+            filters[name] = value[name]
+    for name in ("category_id", "building_id", "assignee_id"):
+        if not value[name]:
+            continue
+        if name == "assignee_id" and value[name] == "none":
+            filters[name] = None  # unassigned
+        elif value[name].isdigit() and int(value[name]) > 0:
+            filters[name] = int(value[name])
+        else:
+            details[name] = f"{name} must be a positive integer" + (' or "none"' if name == "assignee_id" else "")
+    if value["escalated"] and value["escalated"] not in ("true", "false"):
+        details["escalated"] = "escalated must be true or false"
+    elif value["escalated"]:
+        filters["is_escalated"] = value["escalated"] == "true"
+    if len(value["q"]) > MAX_QUERY:
+        details["q"] = f"Search text must be at most {MAX_QUERY} characters"
+    elif value["q"]:
+        filters["q"] = value["q"]
+    return filters, details
+
+
+def _field_error(exc: pg_errors.Error) -> Exception:
+    """A known constraint violation as a field-level 400; anything else is re-raised unchanged."""
+    field_error = CONSTRAINT_ERRORS.get(exc.diag.constraint_name)
+    return BadRequest(details=dict([field_error])) if field_error else exc
 
 
 def _status_fields(incident: dict, new_status: str, reason: str) -> dict:
