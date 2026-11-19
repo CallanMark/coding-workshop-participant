@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -12,6 +13,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import { listEngineers } from '../../api/incidents';
 import { PRIORITIES } from '../../constants';
+import { CategorySelect, LocationFields } from '../facilities/FacilityFields';
 
 /**
  * Assign an engineer from the incident's team (team manager or admin). Unavailable engineers are listed
@@ -94,26 +96,41 @@ AssignDialog.propTypes = {
   onConfirm: PropTypes.func.isRequired,
 };
 
+const idText = (value) => (value == null ? '' : String(value));
+
 /**
- * Edit title, description and priority; only changed fields are sent.
+ * Edit title, description, priority, category and location; only changed fields are sent.
+ * Warns when the new category belongs to another team (the incident moves there and is unassigned).
  * @param {{incident: object, errors?: object, onCancel: function(): void, onConfirm: function(object): void}} props
  */
 export function EditIncidentDialog({ incident, errors = {}, onCancel, onConfirm }) {
   const [form, setForm] = useState({
-    title: incident.title, description: incident.description || '', priority: incident.priority,
+    title: incident.title,
+    description: incident.description || '',
+    priority: incident.priority,
+    category_id: idText(incident.category_id),
+    building_id: idText(incident.building_id),
+    floor_id: idText(incident.floor_id),
+    seat_id: idText(incident.seat_id),
   });
+  const [newTeam, setNewTeam] = useState(null); // the chosen category's team, when it differs
   const change = (event) => setForm({ ...form, [event.target.name]: event.target.value });
+
   const submit = (event) => {
     event.preventDefault();
     const changes = {};
     if (form.title.trim() !== incident.title) changes.title = form.title.trim();
     if (form.description.trim() !== (incident.description || '')) changes.description = form.description.trim();
     if (form.priority !== incident.priority) changes.priority = form.priority;
+    ['category_id', 'building_id', 'floor_id', 'seat_id'].forEach((name) => {
+      if (form[name] !== idText(incident[name])) changes[name] = form[name] === '' ? null : Number(form[name]);
+    });
     if (Object.keys(changes).length === 0) onCancel();
     else onConfirm(changes);
   };
+
   return (
-    <Dialog open onClose={onCancel} fullWidth maxWidth="sm">
+    <Dialog open onClose={onCancel} fullWidth maxWidth="md">
       <form onSubmit={submit} noValidate>
         <DialogTitle>Edit #{incident.id}</DialogTitle>
         <DialogContent>
@@ -133,11 +150,33 @@ export function EditIncidentDialog({ incident, errors = {}, onCancel, onConfirm 
                 <MenuItem key={value} value={value}>{label}</MenuItem>
               ))}
             </TextField>
+            <CategorySelect
+              value={form.category_id}
+              onChange={(id, category) => {
+                setForm({ ...form, category_id: id });
+                setNewTeam(category && category.team_id !== incident.team_id ? category.team_name : null);
+              }}
+              required
+              error={errors.category_id}
+            />
+            {newTeam && (
+              <Alert severity="warning">
+                This moves the incident to {newTeam}
+                {incident.assignee_name ? ` and unassigns ${incident.assignee_name}` : ''}.
+              </Alert>
+            )}
+            <LocationFields
+              value={{ building_id: form.building_id, floor_id: form.floor_id, seat_id: form.seat_id }}
+              onChange={(location) => setForm({ ...form, ...location })}
+              errors={errors}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={onCancel}>Cancel</Button>
-          <Button type="submit" variant="contained" disabled={!form.title.trim()}>Save</Button>
+          <Button type="submit" variant="contained" disabled={!form.title.trim() || !form.category_id || !form.building_id}>
+            Save
+          </Button>
         </DialogActions>
       </form>
     </Dialog>
