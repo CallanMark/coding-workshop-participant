@@ -23,15 +23,17 @@ FEEDBACK_STATUSES = ("resolved", "closed")  # feedback is about completed work
 
 # The single source of truth for the incident workflow.
 # (from, to) -> who may make the move, and whether a reason is required.
-# "manager" means the manager of the incident's team; they act as admin within their team.
+# Status is the handling team's job: the assigned engineer, the manager of the incident's team (who acts as
+# admin within their team) or an admin. Reporters follow progress and add notes; they never move status.
+WORKERS = frozenset({"assignee", "manager", "admin"})
 TRANSITIONS = {
-    ("open", "in_progress"):     {"who": {"assignee", "manager", "admin"}, "reason": False},
-    ("in_progress", "blocked"):  {"who": {"assignee", "manager", "admin"}, "reason": True},
-    ("blocked", "in_progress"):  {"who": {"assignee", "manager", "admin"}, "reason": False},
-    ("in_progress", "resolved"): {"who": {"assignee", "manager", "admin"}, "reason": False},
-    ("resolved", "closed"):      {"who": {"reporter", "manager", "admin"}, "reason": False},
-    ("resolved", "in_progress"): {"who": {"reporter", "manager", "admin"}, "reason": True},   # reopen
-    ("open", "closed"):          {"who": {"reporter", "manager", "admin"}, "reason": True},   # cancel
+    ("open", "in_progress"):     {"who": WORKERS, "reason": False},
+    ("in_progress", "blocked"):  {"who": WORKERS, "reason": True},
+    ("blocked", "in_progress"):  {"who": WORKERS, "reason": False},
+    ("in_progress", "resolved"): {"who": WORKERS, "reason": False},
+    ("resolved", "closed"):      {"who": WORKERS, "reason": False},
+    ("resolved", "in_progress"): {"who": WORKERS, "reason": True},   # reopen
+    ("open", "closed"):          {"who": WORKERS, "reason": True},   # cancel, e.g. a duplicate
 }
 
 # Database constraint name -> (field, message), so constraint violations become field-level 400s.
@@ -134,8 +136,9 @@ def change_status(req: Request) -> dict:
         if rule is None:
             raise Conflict(f"Cannot move an incident from {old_status} to {new_status}")
         if not relations & rule["who"]:
-            allowed = " or ".join(sorted(rule["who"]))
-            raise Forbidden(f"Only the {allowed} can move an incident from {old_status} to {new_status}")
+            raise Forbidden(
+                "Only the assigned engineer, the team's manager or an admin can change this incident's status"
+            )
         if old_status == "open" and new_status == "in_progress" and incident["assignee_id"] is None:
             raise Conflict("Assign an engineer before starting work")
         if rule["reason"] and not reason:
