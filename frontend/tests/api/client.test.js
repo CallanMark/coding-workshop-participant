@@ -35,6 +35,25 @@ describe('apiRequest', () => {
     expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('Authorization');
   });
 
+  it("treats CloudFront's index.html answer to an API 404 as not found", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/html' }),
+      json: async () => { throw new SyntaxError('Unexpected token <'); },
+    });
+
+    const error = await apiRequest('/incidents/999').catch((e) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.status).toBe(404);
+  });
+
+  it('returns a JSON null body as it is', async () => {
+    fetchMock.mockResolvedValue({ ...reply(200, null), headers: new Headers({ 'content-type': 'application/json' }) });
+    expect(await apiRequest('/incidents/1/feedback')).toBeNull();
+  });
+
   it('turns error responses into ApiError with field details', async () => {
     fetchMock.mockResolvedValue(reply(400, { error: { message: 'Validation failed', details: { title: 'Required' } } }));
 

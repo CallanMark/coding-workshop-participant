@@ -100,13 +100,18 @@ def repo(monkeypatch):
         state["feedback"][incident_id] = {"incident_id": incident_id, "reporter_id": reporter_id,
                                           "engineer_id": engineer_id, "rating": rating, "comment": comment}
 
-    def list_engineer_feedback(engineer_id):
-        return [row for row in state["feedback"].values() if row["engineer_id"] == engineer_id]
+    def engineer_feedback(engineer_id, limit=None):
+        return [row for row in state["feedback"].values() if row["engineer_id"] == engineer_id][:limit]
+
+    def feedback_summary(engineer_id):
+        ratings = [row["rating"] for row in engineer_feedback(engineer_id)]
+        return {"average": round(sum(ratings) / len(ratings), 1) if ratings else None, "ratings": len(ratings)}
 
     monkeypatch.setattr(repository, "get_feedback", get_feedback)
     monkeypatch.setattr(repository, "save_feedback", save_feedback)
     monkeypatch.setattr(lookups, "get_user", users.get)
-    monkeypatch.setattr(repository, "list_engineer_feedback", list_engineer_feedback)
+    monkeypatch.setattr(lookups, "engineer_feedback", engineer_feedback)
+    monkeypatch.setattr(lookups, "feedback_summary", feedback_summary)
     state["notes"] = {}
 
     def get_note(incident_id, note_id):
@@ -288,15 +293,15 @@ def test_every_allowed_transition(repo, move, who):
     assert event["actor_id"] == actor["id"]  # from the token, not the body
 
 
-# One user who can see the incident but is not allowed to make the move.
-NOT_ALLOWED = [
-    (("open", "in_progress"), EVE), (("in_progress", "blocked"), EVE), (("blocked", "in_progress"), EVE),
-    (("in_progress", "resolved"), FRED_TEAMMATE), (("resolved", "closed"), FRED),
-    (("resolved", "in_progress"), FRED), (("open", "closed"), FRED_TEAMMATE),
+# Users who can see the incident but may not make the move: the reporter never moves status,
+# and an engineer on the team who isn't assigned can't either.
+NOT_ALLOWED = [(move, EVE) for move in service.TRANSITIONS] + [
+    (("in_progress", "resolved"), FRED_TEAMMATE), (("open", "closed"), FRED_TEAMMATE),
 ]
 
 
-@pytest.mark.parametrize("move,user", NOT_ALLOWED, ids=[f"{a}->{b}" for (a, b), _ in NOT_ALLOWED])
+@pytest.mark.parametrize("move,user", NOT_ALLOWED,
+                         ids=[f"{a}->{b} by {u['role']} {u['id']}" for (a, b), u in NOT_ALLOWED])
 def test_visible_but_not_allowed_is_403(repo, move, user):
     repo["incidents"][10] = incident(status=move[0])
     status, _ = call("POST", "/10/status", user, {"status": move[1], "reason": "because"})

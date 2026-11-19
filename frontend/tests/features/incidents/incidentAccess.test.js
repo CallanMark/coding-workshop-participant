@@ -28,13 +28,16 @@ describe('relations (mirror of the backend)', () => {
 
 describe('allowed actions', () => {
   it('the assignee works the incident', () => {
-    expect(allowedActions(FRED, incident()).moves).toEqual(['in_progress']);
+    expect(allowedActions(FRED, incident()).moves).toEqual(['in_progress', 'closed']);
     expect(allowedActions(FRED, incident({ status: 'in_progress' })).moves).toEqual(['blocked', 'resolved']);
   });
 
-  it('the reporter can cancel while open and close or reopen once resolved', () => {
-    expect(allowedActions(EVE, incident()).moves).toEqual(['closed']);
-    expect(allowedActions(EVE, incident({ status: 'resolved' })).moves).toEqual(['closed', 'in_progress']);
+  it('the assignee also closes, reopens and cancels', () => {
+    expect(allowedActions(FRED, incident({ status: 'resolved' })).moves).toEqual(['closed', 'in_progress']);
+  });
+
+  it.each(['open', 'in_progress', 'blocked', 'resolved'])('the reporter never moves a %s incident', (status) => {
+    expect(allowedActions(EVE, incident({ status })).moves).toEqual([]);
   });
 
   it('nobody can start unassigned work', () => {
