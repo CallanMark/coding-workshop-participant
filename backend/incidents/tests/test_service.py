@@ -87,8 +87,9 @@ def repo(monkeypatch):
     monkeypatch.setattr(repository, "get_duplicate", get_duplicate)
     monkeypatch.setattr(repository, "get_category_team", {1: 1, 4: 2}.get)
     state["feedback"] = {}
-    users = {u["id"]: {**u, "name": f"User {u['id']}", "team_name": None} for u in
-             (ADMIN, EVE, SAM, FRED, TINA, MORGAN, PAT, FRED_TEAMMATE)}
+    users = {u["id"]: {**u, "name": f"User {u['id']}", "team_name": None, "is_active": True, "is_available": True}
+             for u in (ADMIN, EVE, SAM, FRED, TINA, MORGAN, PAT, FRED_TEAMMATE)}
+    state["users"] = users
 
     def get_feedback(incident_id):
         row = state["feedback"].get(incident_id)
@@ -126,7 +127,7 @@ def call(method, path, user=None, body=None, query=None):
 
 @pytest.mark.parametrize("method,path", [
     ("GET", "/"), ("GET", "/10"), ("POST", "/"), ("PUT", "/10"), ("DELETE", "/10"), ("POST", "/10/status"),
-    ("POST", "/10/escalate"), ("GET", "/duplicates"), ("GET", "/10/summary"),
+    ("POST", "/10/escalate"), ("POST", "/10/assign"), ("GET", "/duplicates"), ("GET", "/10/summary"),
     ("PUT", "/10/feedback"), ("GET", "/10/feedback"), ("GET", "/engineers/4/feedback"),
 ])
 def test_every_route_needs_a_token(repo, method, path):
@@ -565,3 +566,141 @@ def test_engineer_without_feedback_has_no_average(repo):
 ])
 def test_engineer_feedback_is_restricted(repo, user, engineer_id, expected):
     assert call("GET", f"/engineers/{engineer_id}/feedback", user)[0] == expected
+
+
+# --- assign ---------------------------------------------------------------------
+
+def unassigned(repo, **fields):
+    """An open, unassigned Facilities incident #10 reported by Eve."""
+    repo["incidents"][10] = incident(assignee_id=None, assigned_at=None, is_escalated=False, **fields)
+    return repo["incidents"][10]
+
+
+@pytest.mark.parametrize("user", [PAT, ADMIN], ids=["team manager", "admin"])
+def test_manager_or_admin_assigns_a_team_engineer(repo, user):
+    unassigned(repo)
+    status, _ = call("POST", "/10/assign", user, {"assignee_id": FRED_TEAMMATE["id"]})
+    assert status == 200
+    assert repo["incidents"][10]["assignee_id"] == FRED_TEAMMATE["id"]
+    assert repo["incidents"][10]["assigned_at"] is not None
+    assert repo["incidents"][10]["acknowledged_at"] is None  # only the engineer taking it acknowledges it
+    assert [(e["type"], e["from"], e["to"]) for e in repo["events"]] == [("assigned", None, "9")]
+
+
+def test_engineer_takes_an_unassigned_team_ticket(repo):
+    unassigned(repo)
+    assert call("POST", "/10/assign", FRED, {"assignee_id": FRED["id"]})[0] == 200
+    assert repo["incidents"][10]["assignee_id"] == FRED["id"]
+    assert repo["incidents"][10]["acknowledged_at"] is not None
+
+
+@pytest.mark.parametrize("user,body,expected", [
+    (FRED, {"assignee_id": FRED_TEAMMATE["id"]}, 403),   # an engineer can't assign someone else
+    (FRED, {"assignee_id": None}, 403),
+    (TINA, {"assignee_id": TINA["id"]}, 404),            # other team's ticket
+    (EVE, {"assignee_id": FRED["id"]}, 403),             # employees: route roles
+    (MORGAN, {"assignee_id": FRED["id"]}, 404),          # other team's manager
+])
+def test_who_may_not_assign(repo, user, body, expected):
+    unassigned(repo)
+    assert call("POST", "/10/assign", user, body)[0] == expected
+    assert repo["events"] == []
+
+
+def test_engineer_cannot_take_an_assigned_ticket(repo):
+    unassigned(repo)["assignee_id"] = FRED_TEAMMATE["id"]
+    assert call("POST", "/10/assign", FRED, {"assignee_id": FRED["id"]})[0] == 409
+
+
+@pytest.mark.parametrize("change", [
+    {"role": "employee"}, {"team_id": 2}, {"is_active": False}, {"is_available": False},
+], ids=["not an engineer", "other team", "inactive", "unavailable"])
+def test_assignee_must_be_an_available_team_engineer(repo, change):
+    unassigned(repo)
+    repo["users"][FRED_TEAMMATE["id"]].update(change)
+    status, body = call("POST", "/10/assign", PAT, {"assignee_id": FRED_TEAMMATE["id"]})
+    assert status == 400
+    assert "assignee_id" in body["error"]["details"]
+
+
+@pytest.mark.parametrize("value", ["4", 0, True, 1.5])
+def test_assignee_id_must_be_an_id_or_null(repo, value):
+    unassigned(repo)
+    assert call("POST", "/10/assign", PAT, {"assignee_id": value})[0] == 400
+
+
+def test_unknown_assignee_is_a_field_error(repo):
+    unassigned(repo)
+    assert call("POST", "/10/assign", PAT, {"assignee_id": 999})[0] == 400
+
+
+@pytest.mark.parametrize("status_", ["resolved", "closed"])
+def test_finished_incidents_cannot_be_reassigned(repo, status_):
+    repo["incidents"][10] = incident(status=status_)
+    assert call("POST", "/10/assign", PAT, {"assignee_id": FRED_TEAMMATE["id"]})[0] == 409
+
+
+def test_unassign_only_while_open(repo):
+    repo["incidents"][10] = incident(status="open")
+    assert call("POST", "/10/assign", PAT, {"assignee_id": None})[0] == 200
+    assert repo["incidents"][10]["assignee_id"] is None
+    assert repo["events"][-1]["from"] == "4"
+    repo["incidents"][10].update(status="in_progress", assignee_id=FRED["id"])
+    assert call("POST", "/10/assign", PAT, {"assignee_id": None})[0] == 409
+
+
+def test_reassigning_to_the_same_engineer_changes_nothing(repo):
+    repo["incidents"][10] = incident()
+    assert call("POST", "/10/assign", PAT, {"assignee_id": FRED["id"]})[0] == 200
+    assert repo["updates"] == [] and repo["events"] == []
+
+
+# --- escalate -------------------------------------------------------------------
+
+@pytest.mark.parametrize("user", [EVE, FRED, PAT, ADMIN], ids=["reporter", "assignee", "team manager", "admin"])
+def test_who_may_escalate(repo, user):
+    repo["incidents"][10] = incident(is_escalated=False)
+    status, _ = call("POST", "/10/escalate", user, {"escalate": True, "reason": " Whole floor affected "})
+    assert status == 200
+    assert repo["incidents"][10]["is_escalated"] is True
+    assert repo["incidents"][10]["escalation_reason"] == "Whole floor affected"
+    assert [(e["type"], e["from"], e["to"], e["reason"]) for e in repo["events"]] == [
+        ("escalated", "false", "true", "Whole floor affected")]
+
+
+def test_teammate_cannot_escalate(repo):
+    repo["incidents"][10] = incident(is_escalated=False)
+    assert call("POST", "/10/escalate", FRED_TEAMMATE, {"escalate": True, "reason": "x"})[0] == 403
+
+
+@pytest.mark.parametrize("user,expected", [(PAT, 200), (ADMIN, 200), (EVE, 403), (FRED, 403)])
+def test_only_manager_or_admin_clears(repo, user, expected):
+    repo["incidents"][10] = incident(is_escalated=True, escalation_reason="Urgent")
+    assert call("POST", "/10/escalate", user, {"escalate": False})[0] == expected
+    if expected == 200:
+        assert (repo["incidents"][10]["is_escalated"], repo["incidents"][10]["escalation_reason"]) == (False, None)
+        assert (repo["events"][-1]["from"], repo["events"][-1]["to"]) == ("true", "false")
+
+
+@pytest.mark.parametrize("body,field", [
+    ({"escalate": True}, "reason"), ({"escalate": True, "reason": "  "}, "reason"),
+    ({"reason": "x"}, "escalate"), ({"escalate": "yes", "reason": "x"}, "escalate"),
+])
+def test_escalation_validation(repo, body, field):
+    repo["incidents"][10] = incident(is_escalated=False)
+    status, error = call("POST", "/10/escalate", EVE, body)
+    assert status == 400
+    assert field in error["error"]["details"]
+
+
+def test_escalating_twice_or_clearing_nothing_is_409(repo):
+    repo["incidents"][10] = incident(is_escalated=True, escalation_reason="Urgent")
+    assert call("POST", "/10/escalate", EVE, {"escalate": True, "reason": "again"})[0] == 409
+    repo["incidents"][10]["is_escalated"] = False
+    assert call("POST", "/10/escalate", PAT, {"escalate": False})[0] == 409
+
+
+@pytest.mark.parametrize("status_", ["resolved", "closed"])
+def test_finished_incidents_cannot_be_escalated(repo, status_):
+    repo["incidents"][10] = incident(status=status_, is_escalated=False)
+    assert call("POST", "/10/escalate", EVE, {"escalate": True, "reason": "x"})[0] == 409
