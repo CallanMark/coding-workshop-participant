@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { allowedActions, relations } from '../../../src/features/incidents/incidentAccess';
-import { describeEvent } from '../../../src/features/incidents/eventText';
+import { describeEvent, eventColor, formatWhen } from '../../../src/features/incidents/eventText';
 
 // Same people as the backend seed. Team 1 = Facilities.
 const ADMIN = { id: 1, role: 'admin', team_id: null };
@@ -82,5 +82,17 @@ describe('history sentences', () => {
     [{ event_type: 'team_changed', to_name: 'Workplace Technology' }, 'Alex Admin moved it to Workplace Technology'],
   ])('%o', (fields, sentence) => {
     expect(describeEvent(event(fields))).toBe(sentence);
+  });
+});
+
+describe('timeline times and colours', () => {
+  it('shows 24h time and weekday, then day/month', () => {
+    expect(formatWhen('2026-10-19T14:05:00')).toEqual({ when: '14:05 Monday', date: '19/10' });
+  });
+
+  it('colours a status change by the new status', () => {
+    expect(eventColor({ event_type: 'status_changed', to_value: 'blocked' })).toBe('error');
+    expect(eventColor({ event_type: 'status_changed', to_value: 'closed' })).toBe('grey');
+    expect(eventColor({ event_type: 'escalated', to_value: 'false' })).toBe('success');
   });
 });

@@ -61,9 +61,22 @@ describe('incident detail page', () => {
     expect(await screen.findByRole('heading', { name: 'Air con not working' })).toBeInTheDocument();
     expect(screen.getByLabelText('Workflow')).toBeInTheDocument();
     const timeline = within(screen.getByRole('list', { name: 'Timeline' }));
-    expect(timeline.getByText(/Eve Employee reported it/)).toBeInTheDocument();
+    expect(timeline.getByLabelText('Eve Employee reported it')).toBeInTheDocument();
     expect(timeline.getByText('Still warm')).toBeInTheDocument();
     expect(screen.getByText('HQ Tower › Ground')).toBeInTheDocument();
+  });
+
+  it('shows status changes as chips with an arrow, the reason, and a bold time and weekday', async () => {
+    api.listEvents.mockResolvedValue([EVENT, {
+      id: 2, event_type: 'status_changed', from_value: 'in_progress', to_value: 'blocked', reason: 'Waiting for parts',
+      actor_id: 4, actor_name: 'Fred Facilities', created_at: '2026-10-19T14:05:00',
+    }]);
+    renderAs(EVE);
+    const timeline = within(await screen.findByRole('list', { name: 'Timeline' }));
+    const change = timeline.getByLabelText('Fred Facilities moved it from In progress to Blocked');
+    expect(change).toHaveTextContent('Fred Facilities moved it In progress→Blocked');
+    expect(timeline.getByText('“Waiting for parts”')).toBeInTheDocument();
+    expect(timeline.getAllByText('14:05 Monday')[0].tagName).toBe('STRONG');
   });
 
   it('says not found for an incident the user may not see', async () => {
@@ -117,15 +130,34 @@ describe('incident detail page', () => {
     expect(timeline.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
   });
 
-  it('shows the server error in the assign dialog and keeps it open', async () => {
-    api.assignIncident.mockRejectedValue(new ApiError('Validation failed', 400, { assignee_id: 'Omar Offline is marked as unavailable' }));
+  it('assigns from a dropdown of the team\'s engineers', async () => {
+    api.listEngineers.mockResolvedValue([
+      { id: 4, name: 'Fred Facilities', is_available: true, open_incidents: 1 },
+      { id: 9, name: 'Faye Fixer', is_available: true, open_incidents: 0 },
+      { id: 6, name: 'Omar Offline', is_available: false, open_incidents: 0 },
+    ]);
+    api.assignIncident.mockResolvedValue({});
     renderAs(PAT);
     await userEvent.click((await actions()).getByRole('button', { name: 'Reassign' }));
-    const field = screen.getByLabelText('Engineer ID');
-    await userEvent.clear(field);
-    await userEvent.type(field, '6');
+    expect(api.listEngineers).toHaveBeenCalledWith(1); // the incident's team
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Engineer' }));
+    const options = within(screen.getByRole('listbox'));
+    expect(options.getByRole('option', { name: /Omar Offline/ })).toHaveAttribute('aria-disabled', 'true');
+    expect(options.getByRole('option', { name: /Fred Facilities/ })).toHaveTextContent('Available · 1 open');
+    await userEvent.click(options.getByRole('option', { name: /Faye Fixer/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Assign' }));
-    expect(await screen.findByText('Omar Offline is marked as unavailable')).toBeInTheDocument();
+    expect(api.assignIncident).toHaveBeenCalledWith(10, 9);
+  });
+
+  it('keeps the assign dialog open with the server\'s reason when it refuses', async () => {
+    api.listEngineers.mockResolvedValue([{ id: 9, name: 'Faye Fixer', is_available: true, open_incidents: 0 }]);
+    api.assignIncident.mockRejectedValue(new ApiError('Validation failed', 400, { assignee_id: 'Faye Fixer is no longer active' }));
+    renderAs(PAT);
+    await userEvent.click((await actions()).getByRole('button', { name: 'Reassign' }));
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Engineer' }));
+    await userEvent.click(screen.getByRole('option', { name: /Faye Fixer/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Assign' }));
+    expect(await screen.findByText('Faye Fixer is no longer active')).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 

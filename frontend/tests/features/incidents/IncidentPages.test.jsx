@@ -56,7 +56,7 @@ describe('incident pages use the signed-in user', () => {
   ])('the list title says what a %s sees', async (role, title) => {
     renderAs(USERS[role], <IncidentListPage />);
     expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
-    expect(listIncidents).toHaveBeenCalledWith();
+    expect(listIncidents).toHaveBeenCalledWith({}); // no filters: everything the role may see
   });
 
   it('the report form never asks who the reporter is', async () => {

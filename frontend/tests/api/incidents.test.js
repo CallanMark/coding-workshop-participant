@@ -2,7 +2,7 @@ import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
 import {
-  changeIncidentStatus, createIncident, findDuplicates, getIncident, getIncidentSummary, listIncidents, locationQuery,
+  changeIncidentStatus, createIncident, findDuplicates, getIncident, getIncidentSummary, listEngineers, listIncidents, locationQuery,
 } from '../../src/api/incidents';
 
 /** The path and parsed body of the one fetch call made. */
@@ -58,5 +58,20 @@ describe('incidents API', () => {
   it('asks for a summary with the same place it was found for', async () => {
     await getIncidentSummary(5, { category_id: 1, building_id: 2 });
     expect(sent(fetchMock).path).toBe('/incidents/5/summary?category_id=1&building_id=2');
+  });
+
+  it('sends only the filters that are set', async () => {
+    await listIncidents({ status: 'open', assignee_id: 'none', priority: '', q: '  wi-fi  ', escalated: undefined });
+    expect(sent(fetchMock).path).toBe('/incidents?status=open&assignee_id=none&q=wi-fi');
+  });
+
+  it('combines mine with filters', async () => {
+    await listIncidents({ mine: true, status: 'blocked' });
+    expect(sent(fetchMock).path).toBe('/incidents?mine=true&status=blocked');
+  });
+
+  it('lists one team\'s engineers for the assign dropdown', async () => {
+    await listEngineers(2);
+    expect(sent(fetchMock).path).toBe('/incidents/engineers?team_id=2');
   });
 });
