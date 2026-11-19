@@ -14,7 +14,7 @@ export const CATEGORIES = [
   { id: 4, name: 'IT Hardware', team_id: 2, team_name: 'Workplace Technology' },
 ];
 
-/** The api/facilities module with list calls answered from the data above. */
+/** The api/facilities module: lists answered from the data above, writes resolve. */
 export function facilitiesMock() {
   return {
     listBuildings: vi.fn(async () => BUILDINGS),
@@ -22,6 +22,11 @@ export function facilitiesMock() {
     listSeats: vi.fn(async (floorId) => SEATS[floorId] || []),
     listCategories: vi.fn(async () => CATEGORIES),
     listTeams: vi.fn(async () => [{ id: 1, name: 'Facilities' }, { id: 2, name: 'Workplace Technology' }]),
+    ...Object.fromEntries(['Building', 'Floor', 'Seat', 'Category'].flatMap((noun) => [
+      [`create${noun}`, vi.fn(async () => ({}))],
+      [`update${noun}`, vi.fn(async () => ({}))],
+      [`delete${noun}`, vi.fn(async () => null)],
+    ])),
   };
 }
 
