@@ -109,21 +109,26 @@ jobs:
           retry="--retry 5 --retry-delay 15 --retry-all-errors --max-time 60"
           curl -fsS $retry -o /dev/null "$WEBSITE_URL"
           echo "✓ frontend responds"
-          # First call can be slow: Lambda cold start + ensure_schema() (and seeding an empty database)
-          count=$(curl -fsS $retry "${API_URL%/}/api/incidents" | jq length)
-          echo "✓ GET /api/incidents returned $count incidents"
-          # Sign in as the seeded admin, then use the token: proves auth, JWT secret and seed data
+          # Sign in as the seeded admin. First call can be slow: Lambda cold start, ensure_schema(),
+          # seeding an empty database, or Aurora resuming from a pause.
           login=$(jq -cn --arg p "$TF_VAR_seed_password" '{email: "admin@acme.inc", password: $p}')
           token=$(curl -fsS $retry -H 'Content-Type: application/json' --data "$login" \
             "${API_URL%/}/api/auth/login" | jq -r .token)
-          me=$(curl -fsS $retry -H "Authorization: Bearer $token" "${API_URL%/}/api/auth/me" | jq -r .email)
+          auth=(-H "Authorization: Bearer $token")
+          me=$(curl -fsS $retry "${auth[@]}" "${API_URL%/}/api/auth/me" | jq -r .email)
           [ "$me" = "admin@acme.inc" ] || { echo "::error::Signed-in /api/auth/me returned '$me'"; exit 1; }
           echo "✓ admin can sign in and /api/auth/me returns $me"
+          # Every incidents route needs a token: without one it must be refused, with one it works
+          anonymous=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "${API_URL%/}/api/incidents")
+          [ "$anonymous" = "401" ] || { echo "::error::GET /api/incidents without a token returned $anonymous, expected 401"; exit 1; }
+          echo "✓ GET /api/incidents without a token is refused (401)"
+          count=$(curl -fsS $retry "${auth[@]}" "${API_URL%/}/api/incidents" | jq length)
+          echo "✓ GET /api/incidents as admin returned $count incidents"
           {
             echo "### Deployed"
             echo "- Website: $WEBSITE_URL"
-            echo "- API: ${API_URL%/}/api/incidents ($count incidents)"
             echo "- Sign-in: admin@acme.inc → /api/auth/me OK"
+            echo "- API: ${API_URL%/}/api/incidents → 401 without a token, $count incidents as admin"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # When anything above fails, print recent Lambda logs (stack traces) so the cause is in the job log.
