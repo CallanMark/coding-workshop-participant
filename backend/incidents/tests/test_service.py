@@ -106,6 +106,25 @@ def repo(monkeypatch):
     monkeypatch.setattr(repository, "save_feedback", save_feedback)
     monkeypatch.setattr(repository, "get_user", users.get)
     monkeypatch.setattr(repository, "list_engineer_feedback", list_engineer_feedback)
+    state["notes"] = {}
+
+    def get_note(incident_id, note_id):
+        note = state["notes"].get(note_id)
+        return dict(note) if note and note["incident_id"] == incident_id else None
+
+    def insert_note(incident_id, author_id, body):
+        note_id = len(state["notes"]) + 1
+        state["notes"][note_id] = {"id": note_id, "incident_id": incident_id, "author_id": author_id, "body": body}
+        return note_id
+
+    monkeypatch.setattr(repository, "list_notes",
+                        lambda i: [n for n in state["notes"].values() if n["incident_id"] == i])
+    monkeypatch.setattr(repository, "get_note", get_note)
+    monkeypatch.setattr(repository, "insert_note", insert_note)
+    monkeypatch.setattr(repository, "update_note", lambda note_id, body: state["notes"][note_id].update(body=body))
+    monkeypatch.setattr(repository, "delete_note", lambda note_id: state["notes"].pop(note_id))
+    monkeypatch.setattr(repository, "list_events",
+                        lambda i: [e for e in state["events"] if e["incident_id"] == i])
     monkeypatch.setattr(service, "transaction", nullcontext)
     return state
 
@@ -129,6 +148,8 @@ def call(method, path, user=None, body=None, query=None):
     ("GET", "/"), ("GET", "/10"), ("POST", "/"), ("PUT", "/10"), ("DELETE", "/10"), ("POST", "/10/status"),
     ("POST", "/10/escalate"), ("POST", "/10/assign"), ("GET", "/duplicates"), ("GET", "/10/summary"),
     ("PUT", "/10/feedback"), ("GET", "/10/feedback"), ("GET", "/engineers/4/feedback"),
+    ("GET", "/10/notes"), ("POST", "/10/notes"), ("PUT", "/10/notes/1"), ("DELETE", "/10/notes/1"),
+    ("GET", "/10/events"),
 ])
 def test_every_route_needs_a_token(repo, method, path):
     assert call(method, path)[0] == 401
@@ -704,3 +725,104 @@ def test_escalating_twice_or_clearing_nothing_is_409(repo):
 def test_finished_incidents_cannot_be_escalated(repo, status_):
     repo["incidents"][10] = incident(status=status_, is_escalated=False)
     assert call("POST", "/10/escalate", EVE, {"escalate": True, "reason": "x"})[0] == 409
+
+
+# --- notes ----------------------------------------------------------------------
+
+def with_note(repo, author=EVE, status="in_progress"):
+    """Incident #10 (Facilities, reported by Eve, assigned to Fred) with one note, id 1."""
+    repo["incidents"][10] = incident(status=status)
+    repo["notes"][1] = {"id": 1, "incident_id": 10, "author_id": author["id"], "body": "First"}
+
+
+@pytest.mark.parametrize("user", [EVE, FRED, FRED_TEAMMATE, PAT, ADMIN])
+def test_anyone_in_scope_adds_and_reads_notes(repo, user):
+    repo["incidents"][10] = incident()
+    status, note = call("POST", "/10/notes", user, {"body": "  Any update?  "})
+    assert status == 201
+    assert (note["body"], note["author_id"]) == ("Any update?", user["id"])
+    assert call("GET", "/10/notes", user) == (200, [note])
+
+
+@pytest.mark.parametrize("user", [SAM, TINA, MORGAN])
+def test_notes_out_of_scope_are_404(repo, user):
+    with_note(repo)
+    assert call("GET", "/10/notes", user)[0] == 404
+    assert call("POST", "/10/notes", user, {"body": "x"})[0] == 404
+
+
+@pytest.mark.parametrize("body", [{}, {"body": "   "}, {"body": 5}, {"body": "x" * (service.MAX_NOTE + 1)}])
+def test_note_text_is_required_and_limited(repo, body):
+    repo["incidents"][10] = incident()
+    status, error = call("POST", "/10/notes", EVE, body)
+    assert status == 400
+    assert "body" in error["error"]["details"]
+
+
+def test_no_notes_on_a_closed_incident(repo):
+    repo["incidents"][10] = incident(status="closed")
+    assert call("POST", "/10/notes", EVE, {"body": "x"})[0] == 409
+
+
+@pytest.mark.parametrize("user,acknowledges", [(FRED, True), (FRED_TEAMMATE, True), (PAT, True), (EVE, False),
+                                               (ADMIN, False)])
+def test_first_note_from_the_team_acknowledges(repo, user, acknowledges):
+    repo["incidents"][10] = incident()
+    call("POST", "/10/notes", user, {"body": "Looking at it"})
+    assert (repo["incidents"][10]["acknowledged_at"] is not None) == acknowledges
+
+
+def test_a_later_note_keeps_the_first_acknowledgement(repo):
+    repo["incidents"][10] = incident(acknowledged_at="earlier")
+    call("POST", "/10/notes", FRED, {"body": "Still on it"})
+    assert repo["incidents"][10]["acknowledged_at"] == "earlier"
+
+
+def test_author_edits_their_note(repo):
+    with_note(repo)
+    status, note = call("PUT", "/10/notes/1", EVE, {"body": "Edited"})
+    assert (status, note["body"]) == (200, "Edited")
+
+
+@pytest.mark.parametrize("user", [FRED, PAT, ADMIN])
+def test_only_the_author_edits(repo, user):
+    with_note(repo)
+    assert call("PUT", "/10/notes/1", user, {"body": "Edited"})[0] == 403
+    assert repo["notes"][1]["body"] == "First"
+
+
+def test_note_must_belong_to_the_incident(repo):
+    with_note(repo)
+    repo["incidents"][11] = incident(status="open", id=11)
+    assert call("PUT", "/11/notes/1", EVE, {"body": "x"})[0] == 404
+    assert call("DELETE", "/11/notes/1", ADMIN)[0] == 404
+
+
+@pytest.mark.parametrize("user", [EVE, ADMIN], ids=["author", "admin"])
+def test_author_or_admin_deletes_a_note(repo, user):
+    with_note(repo)
+    assert call("DELETE", "/10/notes/1", user)[0] == 204
+    assert repo["notes"] == {}
+
+
+@pytest.mark.parametrize("user", [FRED, PAT])
+def test_others_cannot_delete_a_note(repo, user):
+    with_note(repo)
+    assert call("DELETE", "/10/notes/1", user)[0] == 403
+    assert 1 in repo["notes"]
+
+
+def test_notes_are_frozen_once_closed_except_for_admin(repo):
+    with_note(repo, status="closed")
+    assert call("PUT", "/10/notes/1", EVE, {"body": "x"})[0] == 409
+    assert call("DELETE", "/10/notes/1", EVE)[0] == 409
+    assert call("DELETE", "/10/notes/1", ADMIN)[0] == 204
+
+
+# --- events ---------------------------------------------------------------------
+
+def test_events_for_anyone_in_scope(repo):
+    repo["incidents"][10] = incident()
+    repo["events"].append({"incident_id": 10, "type": "created"})
+    assert call("GET", "/10/events", FRED) == (200, [{"incident_id": 10, "type": "created"}])
+    assert call("GET", "/10/events", SAM)[0] == 404
