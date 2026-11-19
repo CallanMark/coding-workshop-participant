@@ -3,6 +3,8 @@ Incidents repository: SQL only. No rules, no permissions, no HTTP.
 Every query uses parameters; callers wrap multi-step writes in common.db.transaction().
 """
 
+from psycopg import sql
+
 from common.db import get_conn
 
 # Incident columns plus display names for related rows.
@@ -77,8 +79,8 @@ def _escape_like(text: str) -> str:
 def list_incidents(visible: dict | None, mine_user_id: int | None = None, filters: dict | None = None) -> list[dict]:
     """Incidents matching the scope and filters (see scope_where), newest first."""
     where, params = scope_where(visible, mine_user_id, filters)
-    sql = INCIDENT_SELECT + where + " ORDER BY i.created_at DESC, i.id DESC"
-    return get_conn().execute(sql, params).fetchall()
+    query = INCIDENT_SELECT + where + " ORDER BY i.created_at DESC, i.id DESC"
+    return get_conn().execute(query, params).fetchall()
 
 
 # The limited view of an incident shown to people outside its scope when it may be a duplicate of
@@ -104,8 +106,8 @@ DUPLICATE_WHERE = """
 def find_duplicates(category_id: int, building_id: int, floor_id: int | None, limit: int) -> list[dict]:
     """Summaries of active incidents at the same place in the same category, newest first."""
     params = {"category_id": category_id, "building_id": building_id, "floor_id": floor_id, "limit": limit}
-    sql = SUMMARY_SELECT + DUPLICATE_WHERE + " ORDER BY i.created_at DESC, i.id DESC LIMIT %(limit)s"
-    return get_conn().execute(sql, params).fetchall()
+    query = SUMMARY_SELECT + DUPLICATE_WHERE + " ORDER BY i.created_at DESC, i.id DESC LIMIT %(limit)s"
+    return get_conn().execute(query, params).fetchall()
 
 
 def get_duplicate(incident_id: int, category_id: int, building_id: int, floor_id: int | None) -> dict | None:
@@ -147,9 +149,12 @@ def insert_incident(fields: dict) -> dict:
 def update_incident(incident_id: int, fields: dict) -> None:
     """Write the given columns (keys must be in UPDATABLE_COLUMNS)."""
     _check_columns(fields, UPDATABLE_COLUMNS)
-    assignments = ", ".join(f"{column} = %({column})s" for column in fields)
-    sql = "UPDATE incidents SET " + assignments + " WHERE id = %(id)s"  # column names are whitelisted above
-    get_conn().execute(sql, {**fields, "id": incident_id})
+    # psycopg's sql module quotes each column as an identifier; values stay parameters.
+    assignments = sql.SQL(", ").join(
+        sql.SQL("{} = {}").format(sql.Identifier(column), sql.Placeholder(column)) for column in fields
+    )
+    query = sql.SQL("UPDATE incidents SET {} WHERE id = {}").format(assignments, sql.Placeholder("id"))
+    get_conn().execute(query, {**fields, "id": incident_id})
 
 
 def delete_incident(incident_id: int) -> bool:
