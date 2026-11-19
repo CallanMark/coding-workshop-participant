@@ -109,6 +109,22 @@ CREATE TABLE IF NOT EXISTS incident_events (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- The reporter's private feedback on the engineer who completed an incident. A separate table so it is
+-- never returned with an incident: only the reporter, the engineer's manager and admins may read it.
+-- No incident_events row is written for it, because the engineer can see the events.
+CREATE TABLE IF NOT EXISTS incident_feedback (
+  id          serial PRIMARY KEY,
+  incident_id int      NOT NULL UNIQUE REFERENCES incidents ON DELETE CASCADE,   -- one per incident
+  reporter_id int      NOT NULL REFERENCES users,
+  engineer_id int      NOT NULL REFERENCES users,      -- the assignee when the feedback was given
+  rating      smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment     text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT incident_feedback_not_self CHECK (reporter_id <> engineer_id)
+);
+
 CREATE INDEX IF NOT EXISTS users_team_idx          ON users (team_id);
 CREATE INDEX IF NOT EXISTS incidents_team_status   ON incidents (team_id, status);
 CREATE INDEX IF NOT EXISTS incidents_assignee_idx  ON incidents (assignee_id);
@@ -117,3 +133,4 @@ CREATE INDEX IF NOT EXISTS incidents_category_idx  ON incidents (category_id);
 CREATE INDEX IF NOT EXISTS incidents_location_idx  ON incidents (building_id, floor_id, seat_id);
 CREATE INDEX IF NOT EXISTS incident_notes_inc_idx  ON incident_notes (incident_id);
 CREATE INDEX IF NOT EXISTS incident_events_inc_idx ON incident_events (incident_id, created_at);
+CREATE INDEX IF NOT EXISTS incident_feedback_engineer_idx ON incident_feedback (engineer_id);

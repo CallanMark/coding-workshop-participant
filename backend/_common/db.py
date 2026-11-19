@@ -88,7 +88,7 @@ def ensure_schema() -> None:
 
 
 # Every table in schema.sql, children first (same list as bin/init-db.sh --reset).
-APP_TABLES = ("incident_events", "incident_notes", "incidents", "seats", "floors",
+APP_TABLES = ("incident_feedback", "incident_events", "incident_notes", "incidents", "seats", "floors",
               "buildings", "users", "categories", "teams")
 
 

@@ -36,7 +36,7 @@ for arg in "$@"; do
         --no-seed) SEED=false ;;
         --reset)
             echo "  ⚠ Dropping all app tables..."
-            $PSQL -c "DROP TABLE IF EXISTS incident_events, incident_notes, incidents, seats, floors, buildings, users, categories, teams CASCADE;"
+            $PSQL -c "DROP TABLE IF EXISTS incident_feedback, incident_events, incident_notes, incidents, seats, floors, buildings, users, categories, teams CASCADE;"
             ;;
         *) echo "Unknown option: $arg"; exit 1 ;;
     esac

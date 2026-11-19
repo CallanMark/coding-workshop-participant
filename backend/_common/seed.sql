@@ -120,6 +120,13 @@ INSERT INTO incident_events (id, incident_id, actor_id, event_type, from_value, 
   (18, 5, 2, 'status_changed', 'resolved',    'closed',      NULL, now() - interval '8 days')
 ON CONFLICT DO NOTHING;
 
+-- Reporters' private feedback on completed work (#4 resolved by Fred, #5 closed by Tina).
+INSERT INTO incident_feedback (id, incident_id, reporter_id, engineer_id, rating, comment, created_at, updated_at) VALUES
+  (1, 4, 3, 4, 5, 'Fixed the same day and left the kitchen clean.', now() - interval '4 days', now() - interval '4 days'),
+  (2, 5, 2, 5, 3, 'Projector works now, but it took two days to hear anything back.',
+   now() - interval '8 days', now() - interval '8 days')
+ON CONFLICT DO NOTHING;
+
 -- Move each sequence past the highest id so new rows don't collide with seeded ones.
 SELECT setval(pg_get_serial_sequence('teams', 'id'),           (SELECT max(id) FROM teams));
 SELECT setval(pg_get_serial_sequence('categories', 'id'),      (SELECT max(id) FROM categories));
@@ -130,3 +137,4 @@ SELECT setval(pg_get_serial_sequence('seats', 'id'),           (SELECT max(id) F
 SELECT setval(pg_get_serial_sequence('incidents', 'id'),       (SELECT max(id) FROM incidents));
 SELECT setval(pg_get_serial_sequence('incident_notes', 'id'),  (SELECT max(id) FROM incident_notes));
 SELECT setval(pg_get_serial_sequence('incident_events', 'id'), (SELECT max(id) FROM incident_events));
+SELECT setval(pg_get_serial_sequence('incident_feedback', 'id'), (SELECT max(id) FROM incident_feedback));
