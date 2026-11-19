@@ -199,3 +199,46 @@ For a live demo, set `min_capacity = 0.5` in `infra/rds.tf` and push, so the dat
 | `PARTICIPANT_URL not found for event ID` | `EVENT_ID` does not match the workshop DNS record (stray spaces and newlines are stripped automatically). |
 | `requested bucket from "us-east-1", actual location "eu-west-1"` | Wrong region. Set the `AWS_REGION` variable to the workshop region. |
 | `Set the SEED_PASSWORD repository secret` | Add the secret; the cloud database is not seeded without it. |
+
+## Demo data (bulk seed)
+
+`backend/_common/seed.sql` is **generated** by `bin/generate_seed.py`; edit the script, not the SQL, then run:
+
+```bash
+python3 bin/generate_seed.py          # rewrite seed.sql (deterministic: same output every run)
+./bin/init-db.sh --reset              # reload the local database with it
+```
+
+CI fails if `seed.sql` doesn't match the script (`python3 bin/generate_seed.py --check`).
+
+**What's in it**
+
+- 27 accounts. The demo accounts above keep their ids and emails. They are joined by:
+  - engineers `priya.patel`, `liam.walsh` and `grace.kim` (Facilities);
+  - engineers `ravi.shah` and `chloe.martin` (Workplace Technology);
+  - 14 more employees (`aisha.khan`, `ben.carter`, …).
+
+  All use `@acme.inc`. The local password is `Password123!`; in the cloud it is the `SEED_PASSWORD` secret.
+- 3 buildings, 8 floors, 37 seats and 10 categories split between the two teams.
+- 5 hand-written walkthrough incidents (#1–#5, one per status), then about 290 generated over 120 days.
+
+**How the incidents are generated.** Each one is a full life story played forward to the present:
+- reported, then assigned by the team manager;
+- started, sometimes blocked, escalated or reopened;
+- resolved and closed.
+
+Whatever hasn't happened yet "now" decides its current status. That gives a realistic open backlog, unassigned tickets to triage, uneven workloads, real response-time medians, and ratings that differ per engineer. Timestamps are relative to `now()`, so the data never goes stale.
+
+**Recurring hotspots** (for the admin's location view): the same category reported at the same place again and again.
+- Wi-Fi at seat RA-G-01;
+- the Floor 1 printer at seat 1-04;
+- the Innovation Hub meeting room AV at seat IH-1-02;
+- HQ Tower Floor 2 air con;
+- the HQ Tower kitchen plumbing.
+
+**Cloud: versioned reseed.** This updates "Seeding happens once" above.
+- `seed.sql` starts with `-- seed-version: N`, and the database records the version it holds in `app_meta`.
+- On a cold start, a Lambda seeds an empty database as before. It also **wipes and reloads** the demo data once when the database's version is older than the deployed `seed.sql` (or missing).
+- It never downgrades.
+- So to reset the cloud's demo data, bump `SEED_VERSION` in `bin/generate_seed.py`, regenerate, and deploy.
+- **This deletes anything entered in the cloud since the last seed.**
