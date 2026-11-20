@@ -1,8 +1,9 @@
 name: Deploy
 
-# Every push (any branch): run CI, then deploy backend + frontend to AWS, then smoke test.
-# There is ONE cloud environment, so the latest push wins: before the demo, push only to main.
-# Can also be started by hand from the Actions tab.
+# Every push (any branch) runs CI.
+# Only main deploys: CI, then backend + frontend to AWS, then a smoke test.
+# Other branches stop after CI, so they can never replace what's live (there is ONE cloud environment).
+# Can also be started by hand from the Actions tab; it only deploys when started on main.
 #
 # Settings → Secrets and variables → Actions:
 #   Secrets (sensitive, write-only):
@@ -19,11 +20,6 @@ on:
 permissions:
   contents: read
 
-# One deploy at a time; a newer push waits instead of fighting over Terraform state.
-concurrency:
-  group: deploy-aws
-  cancel-in-progress: false
-
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
@@ -31,6 +27,12 @@ jobs:
   deploy:
     name: Deploy to AWS
     needs: ci
+    if: github.ref == 'refs/heads/main'
+    # One deploy at a time; a newer push waits instead of fighting over Terraform state.
+    # Set on this job, not the whole workflow, so CI on other branches never waits behind a deploy.
+    concurrency:
+      group: deploy-aws
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment:
       name: aws
