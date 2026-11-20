@@ -25,3 +25,10 @@
   - The duplicate warning on the report form used to link to the other incident. Now it only shows the title, category and place, so nobody gets a link to a ticket they're not allowed to see.
   - Removed repeated code across the backend and frontend (shared input checks, lookups, dialogs and data loading), and unit tests now fail if they ever touch a real database.
 - Code freeze. CI now only deploys from main, so pushing another branch can't replace the live demo. README has the full project guide: what it does, who can do what, how it's built, how to run and test it, decisions, assumptions and known gaps.
+- Last polish before the demo:
+  - Employees can now create their own account from the app (Create an account, linked from sign in). It only ever makes employee accounts.
+  - Added Playwright end-to-end tests that drive the real app in a browser at desktop, tablet and phone size. They found real layout problems, so I fixed them:
+    - on a phone the top bar took three rows, and on a tablet two; the links now sit behind a menu button on smaller screens;
+    - on a phone the board cut off its columns and the page was about six screens tall of blank space, because of a long Closed column off to the side; the columns now stack on phones and Closed shows the newest 5;
+    - the Facilities tabs and the Delete buttons were cut off on a phone;
+    - dates were in three different styles; they're all UK style now (20 Nov 2026, 07:26).
