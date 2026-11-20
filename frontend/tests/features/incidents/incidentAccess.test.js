@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { allowedActions, relations } from '../../../src/features/incidents/incidentAccess';
-import { describeEvent, eventColor, formatWhen } from '../../../src/features/incidents/eventText';
+import {
+  describeEvent, eventColor, formatDateTime, formatWhen,
+} from '../../../src/features/incidents/eventText';
 
 // Same people as the backend seed. Team 1 = Facilities.
 const ADMIN = { id: 1, role: 'admin', team_id: null };
@@ -91,6 +93,8 @@ describe('history sentences', () => {
 describe('timeline times and colours', () => {
   it('shows 24h time and weekday, then day/month', () => {
     expect(formatWhen('2026-10-19T14:05:00')).toEqual({ when: '14:05 Monday', date: '19/10' });
+    // Dates elsewhere (list, detail card) use the same UK style, whatever the browser's language.
+    expect(formatDateTime('2026-11-20T07:26:27')).toBe('20 Nov 2026, 07:26');
   });
 
   it('colours a status change by the new status', () => {
