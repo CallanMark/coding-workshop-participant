@@ -46,10 +46,20 @@ describe('incident pages use the signed-in user', () => {
     createIncident.mockReset();
   });
 
-  it('the board asks for only my incidents', async () => {
-    renderAs(USERS.engineer, <MyIncidentsPage />);
+  it.each(['engineer', 'employee'])('the board shows a %s only their own incidents', async (role) => {
+    renderAs(USERS[role], <MyIncidentsPage />);
     expect(await screen.findByText(/hasn't reported and isn't assigned/i)).toBeInTheDocument();
     expect(listIncidents).toHaveBeenCalledWith({ mine: true });
+  });
+
+  it.each([
+    ['manager', 'Every incident on your team.'],
+    ['admin', 'Every incident, across all teams.'],
+  ])('the board shows a %s everything they manage, so they can move it along', async (role, subtitle) => {
+    renderAs(USERS[role], <MyIncidentsPage />);
+    expect(screen.getByText(new RegExp(subtitle))).toBeInTheDocument();
+    expect(await screen.findByText('There are no incidents to manage yet.')).toBeInTheDocument();
+    expect(listIncidents).toHaveBeenCalledWith({}); // the server scopes it: team for a manager, all for an admin
   });
 
   it('the board shows the newest 5 closed incidents until asked for the rest', async () => {
