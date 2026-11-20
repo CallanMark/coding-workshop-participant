@@ -94,15 +94,17 @@ jobs:
         run: ./bin/sync-common.sh
 
       # Each service: unit tests plus its handler against a fresh seeded database (backend/<svc>/integration),
-      # with coverage of our own code (not vendored libraries). Fails below the 80% target.
+      # with coverage of its own code (not vendored libraries). Fails below the 80% target.
+      # The shared common/ package is measured once, in auth, where its tests live (tests/test_common_*.py).
       - name: Unit + integration tests with coverage
         run: |
           for tests in backend/*/integration; do
             svc="$(dirname "$tests")"
+            shared=""; [ "$svc" = backend/auth ] && shared="--cov=common"
             echo "::group::$svc"
             pip install -q -r "$svc/requirements.txt" pytest pytest-cov
             (cd "$svc" && pytest -q tests integration \
-              --cov=service --cov=routes --cov=repository --cov=common \
+              --cov=service --cov=routes --cov=repository $shared \
               --cov-report=term --cov-fail-under=80)
             echo "::endgroup::"
           done

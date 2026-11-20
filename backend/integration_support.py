@@ -2,7 +2,7 @@
 Shared setup for the integration tests (backend/<service>/integration/): each service's real Lambda handler
 against a real PostgreSQL database. Nothing is faked: routing, auth, validation, SQL and constraints all run.
 
-Each service's integration/conftest.py imports this module. It:
+Each service's integration/conftest.py calls make_fixtures("<service>"). This module:
 - creates a fresh database per service (acme_it_<service>) on the configured server, dropping any old one;
 - points common.db at it and lets the app's own startup create the schema and load seed.sql, exactly as a
   Lambda cold start does;
@@ -88,3 +88,24 @@ class Client:
         }
         response = self.handler(event)
         return response["statusCode"], json.loads(response.get("body") or "null")
+
+
+def make_fixtures(service: str):
+    """
+    The two fixtures every service's integration tests use, for its conftest.py:
+    `database` (session-wide, automatic): the fresh seeded database;
+    `api`: api(method, path, as_user=email, body=..., query_params=...) -> (status, body) via the real handler.
+    """
+    import pytest
+
+    @pytest.fixture(scope="session", autouse=True)
+    def database():
+        yield from fresh_database(service)
+
+    @pytest.fixture
+    def api():
+        import function  # the service's own handler, on the path pytest set up
+
+        return Client(function.handler, service)
+
+    return database, api
