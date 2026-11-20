@@ -1,116 +1,192 @@
-# Coding Workshop
+# ACME Facility Incidents
 
-The goal of this coding workshop is to enable and assess the hands-on skills
-of participants through development of a practical technical solution that
-solves a theoretical business problem.
+A web app for reporting and fixing problems in ACME's offices, built for the coding workshop. This guide covers what it does, how it's built, how to run and test it, and the decisions I made along the way. The sections after [Known gaps](#known-gaps) go deeper into the cloud setup, the demo data, engineer profiles and the integration and load tests.
 
-## Getting Started
+**Jump to:** [What it does](#what-it-does) · [Who can do what](#who-can-do-what) · [How it's built](#how-its-built) · [Run it on your machine](#run-it-on-your-machine) · [Tests](#tests) · [Deploying](#deploying) · [Decisions and trade-offs](#decisions-and-trade-offs) · [Assumptions](#assumptions) · [Known gaps](#known-gaps) · [Cloud deployment](#cloud-deployment-aws) · [Demo data](#demo-data-bulk-seed)
 
-Navigate to [Coding Workshop - Main Guide](./docs/README.md) to get started.
+## What it does
 
-## Coding Workshop Example
+ACME's offices have problems: broken printers, bad Wi-Fi, a leaking kitchen tap. Before this app, people reported them by email or chat and nobody had the full picture. This app gives everyone one place to report a problem, follow it, and fix it.
 
-Coding workshop organizer(s) will provide instructions to follow by email. Here
-below is a real example of requirements and expectations for participant(s):
+- **Employees** report a problem (we call it an *incident*), say where it is (building, floor, seat), and follow its progress. They can add notes, ask for it to be escalated, and rate the work once it's fixed.
+- **Engineers** see their team's queue, take or get assigned incidents, move them through the workflow, and talk to the reporter through notes.
+- **Managers** run a team: they assign work, see the team dashboard and workload, and handle escalations.
+- **The admin** (the facility admin from the brief) sees everything: every incident, every team, buildings and seats, and engineer profiles.
 
-### Requirements: Business Problem
+### The pages
 
-Our company ACME Inc. is going through a massive organizational transformation
-to become a more data-driven organization. Information about teams structure
-and performance is currently scattered across multiple systems, making it
-difficult to get a comprehensive view of team dynamics and achievements.
+| Page | Who sees it | What's on it |
+|---|---|---|
+| **Sign in** (`/`) | Everyone | Email and password. Staff land on the dashboard, employees on their own incidents. |
+| **My incidents** | Everyone | What I reported and what's assigned to me, as a board with a column per status. Cards can be dragged between columns. |
+| **Report an incident** | Everyone | Category, building, floor and seat picked by name. It warns when a similar incident is already open at the same place, so people don't report the same thing twice. The warning shows only each one's title, category and place, with no link, because the reporter may not be allowed to see it. |
+| **Incidents** | Everyone (each sees only what they're allowed to) | Search and filters (status, priority, category, building, assignee, escalated). Filters are kept in the address, so a link can be shared or the page reloaded. |
+| **Incident detail** | Anyone who can see the incident | A picture of the workflow, the actions this person is allowed to take, one timeline of notes and history, and the reporter's rating. |
+| **Dashboard** | Engineers, managers, admin | Charts by status, priority and category; response times; who's working on what; escalated and blocked incidents. The admin can pick any team and also sees the buildings and seats with the most repeat problems. |
+| **My dashboard** | Engineers | Their own workload and performance. |
+| **Engineers** | Admin | Add engineers, edit them, mark them available or not, deactivate and reactivate them. |
+| **Facilities** | Admin | Buildings, floors, seats and categories: add, edit, delete. |
 
-We are struggling to answer simple questions like:
+### How an incident moves
 
-* Who are the members of each team?
-* Where are the teams located?
-* What are the key achievements of each team on a monthly basis?
-* How many teams have team leader not co-located with team members?
-* How many teams have team leader as a non-direct staff?
-* How many teams have non-direct staff to employees ratio above 20%?
-* How many teams are reporting to an organization leader?
+```
+Open ──► In progress ──► Resolved ──► Closed
+              │  ▲            │
+              ▼  │            └──► back to In progress (reopen)
+            Blocked
+Open ──► Closed (cancel)
+```
 
-### Requirements: Technical Solution
+- Work can only start once someone is assigned.
+- Blocking, reopening and cancelling all need a reason, which shows in the timeline.
+- Every change (status, assignment, escalation, edits) is recorded with who did it and when. That history is what the dashboards' response times are worked out from.
+- A closed incident is locked: no more notes or edits.
 
-As part of this transformation, we are looking to build a centralized team
-management tool that will allow us to track team members, team locations,
-monthly team achievements, as well as individual-level and team-level metadata.
-Initial focus is to provide a self-service capability without any integrations
-with other tools such as Employee Directory, Project Tracking, or Performance
-Management.
+## Who can do what
 
-The technical solution involves developing a stand-alone web application using
-modern technologies. The application will have the following features:
+The server checks every request. The app only hides buttons a person can't use, so trying to get around the app gets refused by the server too.
 
-* User authentication and authorization
-* Role-based access control
-* CRUD operations for individuals, teams, achievements and metadata
-* Search and filter functionality
-* Responsive design for mobile and desktop usage
+| Action | Employee | Engineer | Manager | Admin |
+|---|---|---|---|---|
+| Report an incident | ✅ | ✅ | ✅ | ✅ |
+| See incidents | Ones they reported | Their team's, plus their own | Their team's, plus their own | All |
+| Add a note (until closed) | ✅ on ones they can see | ✅ | ✅ | ✅ |
+| Edit an incident | Ones they reported, while still open | — | Their team's | All |
+| Change status | — | When assigned to them | Their team's | All |
+| Take an unassigned incident | — | In their own team | — | — |
+| Assign or reassign | — | — | Their team's | All |
+| Ask for escalation | Ones they reported | When assigned to them | Their team's | All |
+| Clear an escalation | — | — | Their team's | All |
+| Rate the work | Ones they reported, once resolved | — | Can read it | Can read it |
+| Delete an incident | — | — | — | ✅ |
+| Dashboards | — | Their team, and their own | Their team | Every team, plus location hotspots |
+| Manage engineers and facilities | — | — | — | ✅ |
 
-### Requirements: Technology Stack
+The employee column is really "the person who reported it". Anyone who reports an incident, whatever their role, can also edit it while it's still open, ask for it to be escalated, and rate the work once it's resolved.
 
-The following technologies are required to build the application:
+Someone who isn't allowed to see an incident gets "not found", not "forbidden". That way the app doesn't even confirm the incident exists.
 
-* Frontend: HTML, CSS, React.js with React Responsive and Material UI Components
-* Backend: Python
-* Database: PostgreSQL
+## How it's built
 
-The following technologies are good to know, as they are used to manage and
-deploy code:
+```
+Browser ──► CloudFront ──┬──► S3: the React app (the pages)
+                         └──► /api/auth        ─► Lambda ─┐
+                              /api/incidents   ─► Lambda ─┼──► PostgreSQL (one database)
+                              /api/facilities  ─► Lambda ─┤
+                              /api/analytics   ─► Lambda ─┘
+```
 
-* Version Control: Git, GitHub
-* Infrastructure: Terraform
-* Deployment Mode: Shell Scripts
-* Deployment Target: AWS Serverless (e.g. S3, CloudFront, Lambda, RDS)
+- **Frontend** (`frontend/`): React with Material UI. Each area of the app has its own folder in `src/features/`. Only one file (`src/api/client.js`) talks to the server.
+- **Backend** (`backend/`): four small Python services, each deployed as its own AWS Lambda function:
+  - **auth**: sign in, register, engineer profiles;
+  - **incidents**: incidents, notes, history, assigning, escalation, feedback;
+  - **facilities**: buildings, floors, seats, categories, teams;
+  - **analytics**: the dashboard numbers.
+- **Inside each service** the code is in three layers, so each file has one job:
+  - `routes.py` lists the web addresses and who may call them;
+  - `service.py` holds the rules (who can do what, what's valid);
+  - `repository.py` holds the database queries.
+- **Shared code** lives in `backend/_common/`: reading requests, sign-in tokens, the database connection, error messages, input checks and lookups more than one service needs. `bin/sync-common.sh` copies it into each service before running or deploying, because each Lambda has to be self-contained.
+- **Database**: PostgreSQL. The tables are in `backend/_common/schema.sql` and the demo data is generated by `bin/generate_seed.py` (see [Demo data](#demo-data-bulk-seed)).
+- **Cloud**: Terraform in `infra/` creates everything in AWS. GitHub Actions checks every push and deploys `main` (see [Deploying](#deploying)).
 
-### Expectations: Value-Based Outcomes
+**Keeping it secure**
+- Passwords are never stored, only a scrambled version (scrypt). Checking a password is slow on purpose, which makes stolen password data very hard to crack.
+- After signing in, the browser gets a signed token that lasts 8 hours. Every request sends it, and the server checks it, the person's role and their team every time.
+- Database queries never paste user input into the SQL text; values are always sent separately. That rules out SQL injection.
+- An unexpected error is logged in full on the server, but the user only sees a plain "something went wrong" message, never internal details.
 
-By the end of the workshop, participants will have developed a functional
-web application that meets the requirements outlined above. The application
-will be deployed to a cloud environment and accessible via a web browser.
-Participants will also gain hands-on experience with modern web development
-technologies and best practices.
+## Run it on your machine
 
-## Contributing
+You need the workshop machine (or one set up with `./bin/setup-environment.sh`; see the [Validation Guide](docs/validation.md)).
 
-See the [CONTRIBUTING](./CONTRIBUTING.md) resource for more details.
+```bash
+source ~/.bashrc
+./bin/start-dev.sh
+```
 
-## License
+That one script starts PostgreSQL and LocalStack (a stand-in for AWS on your own machine), creates the tables and demo data, copies the shared backend code into each service, deploys the services locally and starts the app.
 
-This library is licensed under the MIT-0 License.
-See the [LICENSE](./LICENSE) resource for more details.
+Then open **http://localhost:3000** and sign in with any demo account, for example `admin@acme.inc`, `morgan@acme.inc` (manager), `fred@acme.inc` (engineer) or `eve@acme.inc` (employee). Locally every password is `Password123!`.
 
-## Roadmap
+| Want to… | Run |
+|---|---|
+| Start again with fresh demo data | `./bin/init-db.sh --reset` |
+| Pick up backend code changes | `./bin/sync-common.sh`, then `./bin/start-dev.sh` again |
+| Run only the app against the cloud API | See [Developing against the cloud](#developing-against-the-cloud) |
 
-See the
-[open issues](https://github.com/citi/coding-workshop-participant/issues)
-for a list of proposed roadmap features (and known issues).
+## Tests
 
-## Security
+| Kind | Where | How many | What it proves |
+|---|---|---|---|
+| Backend unit tests | `backend/<service>/tests/` | 448 (auth 110, incidents 226, facilities 83, analytics 29) | The rules work: who can do what, input checks, every workflow move, every error message. The database is faked, so they run in seconds, and a test that tries to reach a real database fails on purpose. |
+| Backend integration tests | `backend/<service>/integration/` | 40 more | Real requests through each service against a real, freshly seeded PostgreSQL database. Nothing is faked. |
+| Frontend tests | `frontend/tests/` | 160 | Each page shows the right things for each role, handles loading and errors, and sends the right requests. |
+| Load tests | `load-tests/` | 5 runs | How fast it is with lots of people at once. See [docs/load-testing.md](docs/load-testing.md). |
 
-See the
-[Security Issue Notifications](./CONTRIBUTING.md#security-issue-notifications)
-resource for more details.
+**How to run them**
 
-## Authors
+```bash
+# Backend: one service at a time (unit tests need no database)
+./bin/sync-common.sh
+cd backend/incidents && pytest tests
 
-The following people have contributed to this workshop:
+# Backend: unit + integration tests with coverage (needs local PostgreSQL running)
+cd backend/incidents && pytest tests integration --cov=service --cov=routes --cov=repository
+# In auth, add --cov=common: the shared code is measured once, there, as CI does.
 
-* Colin Heilman - [@heilmancs](https://github.com/heilmancs)
-* Eugene Istrati - [@eistrati](https://github.com/eistrati)
-* Isaiah Cornelius Smith - [@corneliusmith](https://github.com/corneliusmith)
-* Juan Arevalo - [@jparevalo27](https://github.com/jparevalo27)
-* Michael Annucci - [@michael-annucci](https://github.com/michael-annucci)
+# Frontend
+cd frontend && npm test
+```
 
-## Feedback
+**Results.** Everything passes. How much of our own code the tests run through: **auth 96%, incidents 99%, facilities 98%, analytics 100%**. The shared code is measured once, in auth. CI fails any service under 80%.
 
-We'd love to hear your feedback! Please:
+**What CI checks on every push:** code style (ruff, eslint), a security scan of the Python code (bandit), that the demo data file matches its generator, that the database tables and demo data load cleanly twice in a row, every test above except load tests, the frontend build, Terraform formatting and validation, and an npm security audit.
 
-* ⭐ Star the repository if you find it helpful
-* 🐛 Report issues on GitHub
-* 💡 Suggest improvements
-* 📝 Share your experience
+## Deploying
+
+- **Every push to any branch** runs the checks (CI).
+- **Only `main` deploys** to AWS. A push to another branch stops after the checks, so it can never replace what's live. There's only one cloud environment, so this keeps the demo safe.
+- To ship something: open a pull request, wait for green checks, merge it into `main`. The merge deploys, then a smoke test signs in and calls the API to make sure it really works.
+- The deploy can also be started by hand from the Actions tab. It only deploys when started on `main`.
+
+## Decisions and trade-offs
+
+| I chose… | Because… | The cost |
+|---|---|---|
+| **Four small services** instead of one big one | Each area (sign-in, incidents, facilities, dashboards) can change and deploy on its own, and it matches the workshop's Lambda-per-service setup. | Shared code has to be copied into each service by a script. |
+| **One shared database** | Incidents, people and places are closely linked: a dashboard needs all three at once. One database keeps those queries simple and the data consistent. | The services aren't fully independent; a change to a table can affect more than one. |
+| **Dashboards worked out by the server**, in SQL | The numbers are right however many incidents there are, and the browser only downloads the answers. | More SQL to write and test, so every dashboard number is checked against a separate count in the integration tests. |
+| **Engineers are deactivated, never deleted** | Incident history keeps their name and their work still counts. | The engineers list keeps growing; inactive engineers are shown greyed out. |
+| **Ratings are private from the engineer** | People rate more honestly when the engineer won't see it. Managers and the admin use it for coaching. | Engineers don't get direct feedback in the app. |
+| **Reports go to a team by category** | Choosing "Wi-Fi" sends it to Workplace Technology automatically. Employees don't need to know who does what. | Categories have to be set up with the right team by the admin. |
+| **A warning about duplicates** before reporting | Repeat reports of the same printer clog the queue. | It only matches the same category, building and floor, so a slightly different report can still get through. |
+| **The cloud database pauses when idle** | It costs nothing overnight. | The first request after a pause takes about 15 seconds. Warm the app up before a demo. |
+| **Generated demo data with a version number** | About 300 realistic incidents over 120 days, so the dashboards have something real to show. Bumping the version resets the cloud data. | A reset wipes anything typed into the cloud since the last one. |
+| **Slow password checks** | Stolen password data is very hard to crack. | Sign-in takes about 170 ms in the cloud, the slowest request in the app. |
+
+## Assumptions
+
+- **A manager role.** The brief names three personas (employee, facility admin, engineer). Real teams have a lead, so I added a manager who acts like an admin, but only for their own team.
+- **Two teams:** Facilities, and Workplace Technology. Each engineer and manager belongs to one.
+- **The facility admin is like a service account:** they see and can do everything, across all teams.
+- **Only the person doing the work changes the status:** the assigned engineer, the team's manager or the admin. The reporter can't mark their own ticket resolved.
+- **New sign-ups are employees** and need an `@acme.inc` email. Engineers are added by the admin.
+- **Engineers can pick up unassigned work** in their own team ("Take it"), so a quiet queue doesn't need a manager to hand things out.
+
+## Known gaps
+
+What I knowingly left out, roughly in order of importance:
+
+- **No register page in the app.** Registration works on the server (`POST /api/auth/register`, `@acme.inc` emails only) and is tested, but there's no page for it yet. New employees can't sign themselves up from the app.
+- **No end-to-end browser tests.** The pieces are tested separately (unit, integration, frontend, load), but there's no test that clicks through the real app in a browser.
+- **Signing out isn't instant everywhere.** A deactivated engineer can't sign in again, but if they were already signed in, that session can keep working for up to 8 hours, until their sign-in token runs out.
+- **No emails or notifications.** Employees see progress when they open the app, not by email.
+- **No live updates.** Other people's changes show after a reload or the next action, not as they happen.
+- **No limit on sign-in attempts.** Someone could keep guessing passwords; the slow password check only slows them down.
+- **Registration says when an email is already used.** That tells someone the account exists.
+- **Slow first request after idle** (about 15 seconds while the cloud database wakes up).
+- **One cloud environment.** There's no separate test site; `main` is what's live.
 
 ## Cloud Deployment (AWS)
 
@@ -123,14 +199,14 @@ Browser ──► CloudFront ──┬─► S3                 React frontend
 
 ### How it is deployed
 
-Every push (any branch) runs `.github/workflows/deploy.yml`:
+Every push (any branch) runs `.github/workflows/deploy.yml`, but only `main` gets past step 1:
 
-1. CI runs first (lint, tests, build). A red CI never deploys.
+1. CI runs first (lint, tests, build). A red CI never deploys. On any branch other than `main`, the run stops here.
 2. `./bin/deploy-backend.sh aws` applies Terraform (`infra/`): Lambdas, Aurora, CloudFront.
 3. `./bin/deploy-frontend.sh aws` builds the frontend and uploads it to S3.
 4. A smoke test loads the site, lists incidents, signs in as the seeded admin, and calls `/api/auth/me`.
 
-There is **one** cloud environment, so the latest push wins. Before a demo, push only to `main`.
+There is **one** cloud environment, and it always runs what's on `main`. Pushing another branch can't change it.
 
 GitHub settings it needs (Settings → Secrets and variables → Actions):
 
@@ -161,7 +237,7 @@ The cloud database is only reachable from the Lambdas. On the first start, a Lam
 | `fred@acme.inc`, `tina@acme.inc`, `omar@acme.inc` | Engineer |
 | `eve@acme.inc`, `sam@acme.inc` | Employee |
 
-Seeding happens once: changing `SEED_PASSWORD` later does not change existing accounts. New employees can register with an `@acme.inc` address.
+The data is only loaded again when the seed version goes up (see [Cloud: versioned reseed](#demo-data-bulk-seed)), so changing `SEED_PASSWORD` has no effect on existing accounts until the next reseed, which gives every seeded account the new password. New employees can register with an `@acme.inc` address through the API (`POST /api/auth/register`); there's no register page in the app yet (see [Known gaps](#known-gaps)).
 
 ### Developing against the cloud
 
@@ -172,7 +248,7 @@ cd frontend
 VITE_PROXY_TARGET=https://<cloudfront-domain> npm run dev:cloud   # http://localhost:3000
 ```
 
-The Vite dev server forwards `/api/*` to CloudFront, so the browser stays same-origin (no CORS). To avoid passing the URL each time, put `VITE_PROXY_TARGET=...` in `frontend/.env.cloud.local`, which is gitignored. Backend changes reach the cloud by pushing, which deploys them.
+The Vite dev server forwards `/api/*` to CloudFront, so the browser stays same-origin (no CORS). To avoid passing the URL each time, put `VITE_PROXY_TARGET=...` in `frontend/.env.cloud.local`, which is gitignored. Backend changes reach the cloud when they're merged into `main`, which deploys them.
 
 ### Logs
 
@@ -236,7 +312,7 @@ Whatever hasn't happened yet "now" decides its current status. That gives a real
 - HQ Tower Floor 2 air con;
 - the HQ Tower kitchen plumbing.
 
-**Cloud: versioned reseed.** This updates "Seeding happens once" above.
+**Cloud: versioned reseed.**
 - `seed.sql` starts with `-- seed-version: N`, and the database records the version it holds in `app_meta`.
 - On a cold start, a Lambda seeds an empty database as before. It also **wipes and reloads** the demo data once when the database's version is older than the deployed `seed.sql` (or missing).
 - It never downgrades.
@@ -274,10 +350,11 @@ Each service has `backend/<service>/integration/`. These tests send requests thr
 
 ```bash
 ./bin/sync-common.sh
-cd backend/incidents && pytest tests integration --cov=service --cov=routes --cov=repository --cov=common
+cd backend/incidents && pytest tests integration --cov=service --cov=routes --cov=repository
+# In auth, add --cov=common: the shared code is measured once, there, as CI does.
 ```
 
-Coverage of our own code (unit and integration together) is auth 97%, incidents 92%, facilities 82% and analytics 82%. The SQL layer (`repository.py`) went from 52–65% to 95–100%. CI's "Integration tests (real PostgreSQL)" job runs these and fails below 80%.
+Coverage of our own code (unit and integration together) is auth 96%, incidents 99%, facilities 98% and analytics 100%. The SQL layer (`repository.py`) went from 52–65% with unit tests alone to 97–100%. CI's "Integration tests (real PostgreSQL)" job runs these and fails below 80%.
 
 ### Load tests (Artillery)
 Artillery scenarios live in `load-tests/`. Each virtual user signs in for real and uses the main screens for their role. The results and analysis are in [docs/load-testing.md](docs/load-testing.md), and how to run them is in [load-tests/README.md](load-tests/README.md).
