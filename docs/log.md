@@ -32,3 +32,4 @@
     - on a phone the board cut off its columns and the page was about six screens tall of blank space, because of a long Closed column off to the side; the columns now stack on phones and Closed shows the newest 5;
     - the Facilities tabs and the Delete buttons were cut off on a phone;
     - dates were in three different styles; they're all UK style now (20 Nov 2026, 07:26).
+- Found just before the demo: on the My incidents board, managers and the admin saw nothing, because it only showed incidents you reported or are assigned to. Now a manager's board has every incident on their team and the admin's has every incident, so they can drag work between statuses.

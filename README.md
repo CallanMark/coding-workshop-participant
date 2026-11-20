@@ -19,7 +19,7 @@ ACME's offices have problems: broken printers, bad Wi-Fi, a leaking kitchen tap.
 |---|---|---|
 | **Sign in** (`/`) | Everyone | Email and password. Staff land on the dashboard, employees on their own incidents. |
 | **Create an account** (`/register`) | New employees | Name, `@acme.inc` email and password. Signs them straight in as an employee. Engineers, managers and the admin are never created here; the admin adds engineers. |
-| **My incidents** | Everyone | What I reported and what's assigned to me, as a board with a column per status. Cards can be dragged between columns. Closed shows the newest 5 until you ask for the rest. |
+| **My incidents** | Everyone | A board with a column per status. Managers see every incident on their team and the admin sees every incident, so they can move work along; everyone else sees what they reported or are assigned to. Cards can be dragged between columns. Closed shows the newest 5 until you ask for the rest. |
 | **Report an incident** | Everyone | Category, building, floor and seat picked by name. It warns when a similar incident is already open at the same place, so people don't report the same thing twice. The warning shows only each one's title, category and place, with no link, because the reporter may not be allowed to see it. |
 | **Incidents** | Everyone (each sees only what they're allowed to) | Search and filters (status, priority, category, building, assignee, escalated). Filters are kept in the address, so a link can be shared or the page reloaded. |
 | **Incident detail** | Anyone who can see the incident | A picture of the workflow, the actions this person is allowed to take, one timeline of notes and history, and the reporter's rating. |
