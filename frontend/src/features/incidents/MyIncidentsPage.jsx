@@ -15,13 +15,18 @@ import Typography from '@mui/material/Typography';
 import { changeIncidentStatus, listIncidents } from '../../api/incidents';
 import { NEXT_STATUSES, REASON_REQUIRED, STATUSES } from '../../constants';
 import Loaded from '../../components/Loaded';
-import { useAuth } from '../../context/auth';
+import { hasRole, useAuth } from '../../context/auth';
 import useApi from '../../hooks/useApi';
 import BoardCard, { BoardCardContent } from './BoardCard';
 import BoardColumn from './BoardColumn';
 import StatusReasonDialog from './StatusReasonDialog';
 
-const loadMine = () => listIncidents({ mine: true });
+/**
+ * Managers and admins run the board for everything they look after: a manager their team's incidents, an
+ * admin every incident (the server scopes the list by role). Everyone else sees what they reported or hold.
+ */
+const leads = (user) => hasRole(user, 'manager', 'admin');
+const loadBoard = (lead) => listIncidents(lead ? {} : { mine: true });
 
 /** Closed incidents only pile up, so the column shows the newest few until asked for the rest. */
 const CLOSED_SHOWN = 5;
@@ -31,7 +36,7 @@ const CLOSED_SHOWN = 5;
  * @param {{user: {id: number, name: string}}} props
  */
 function IncidentBoard({ user }) {
-  const mine = useApi(loadMine, user.id);
+  const mine = useApi(loadBoard, leads(user));
   const [dragged, setDragged] = useState(null); // incident being dragged
   const [pendingMove, setPendingMove] = useState(null); // { incident, to } waiting for a reason
   const [toast, setToast] = useState(null); // { severity, message }
@@ -88,7 +93,9 @@ function IncidentBoard({ user }) {
     return (
       <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
         <Typography gutterBottom>
-          {user.name} hasn&apos;t reported and isn&apos;t assigned to any incidents.
+          {leads(user)
+            ? 'There are no incidents to manage yet.'
+            : `${user.name} hasn't reported and isn't assigned to any incidents.`}
         </Typography>
         <Button variant="contained" component={RouterLink} to="/incidents/new">Report an incident</Button>
       </Paper>
@@ -177,7 +184,8 @@ IncidentBoard.propTypes = {
 };
 
 /**
- * "My incidents" page: incidents the current user reported or is assigned to, as a board.
+ * "My incidents" page as a board: for managers their team's incidents, for admins every incident, for
+ * everyone else the ones they reported or are assigned to.
  */
 export default function MyIncidentsPage() {
   const { user } = useAuth();
@@ -191,7 +199,11 @@ export default function MyIncidentsPage() {
         <Box>
           <Typography variant="h5" component="h1">My incidents</Typography>
           <Typography variant="body2" color="text.secondary">
-            Reported by or assigned to {user.name}. Drag a card to change its status.
+            {{
+              manager: 'Every incident on your team.',
+              admin: 'Every incident, across all teams.',
+            }[user.role] || `Reported by or assigned to ${user.name}.`}
+            {' '}Drag a card to change its status.
           </Typography>
         </Box>
         <Button variant="contained" component={RouterLink} to="/incidents/new">Report incident</Button>
