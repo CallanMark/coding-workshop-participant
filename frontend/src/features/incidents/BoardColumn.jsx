@@ -25,7 +25,8 @@ export default function BoardColumn({ status, count, draggingFrom, children }) {
       ref={setNodeRef}
       variant="outlined"
       sx={{
-        flex: '1 0 240px',
+        // Side by side from tablet width up; stacked full width on phones.
+        flex: { xs: '0 0 auto', sm: '1 0 240px' },
         p: 1,
         bgcolor: isOver && canDrop ? 'action.hover' : 'background.paper',
         border: 2,

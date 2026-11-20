@@ -28,6 +28,9 @@ import useApi from '../../hooks/useApi';
 import useQueryParams from '../../hooks/useQueryParams';
 import { EngineerFormDialog, EngineerStatusDialog } from './EngineerDialogs';
 
+// Email is hidden on phones to leave room for the columns that matter there.
+const WIDER_ONLY = { display: { xs: 'none', sm: 'table-cell' } };
+
 const ALL_TEAMS = '';
 
 function EngineersTable({ engineers, onEdit, onStatus, onAvailability }) {
@@ -40,7 +43,7 @@ function EngineersTable({ engineers, onEdit, onStatus, onAvailability }) {
         <TableHead>
           <TableRow>
             <TableCell>Name</TableCell>
-            <TableCell>Email</TableCell>
+            <TableCell sx={WIDER_ONLY}>Email</TableCell>
             <TableCell>Team</TableCell>
             <TableCell>Available</TableCell>
             <TableCell align="right">Open incidents</TableCell>
@@ -56,7 +59,7 @@ function EngineersTable({ engineers, onEdit, onStatus, onAvailability }) {
                   ? <Link component={RouterLink} to={`/dashboard/engineers/${engineer.id}`}>{engineer.name}</Link>
                   : engineer.name}
               </TableCell>
-              <TableCell>{engineer.email}</TableCell>
+              <TableCell sx={WIDER_ONLY}>{engineer.email}</TableCell>
               <TableCell>{engineer.team_name}</TableCell>
               <TableCell>
                 <Switch

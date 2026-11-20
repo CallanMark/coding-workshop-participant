@@ -18,7 +18,8 @@ ACME's offices have problems: broken printers, bad Wi-Fi, a leaking kitchen tap.
 | Page | Who sees it | What's on it |
 |---|---|---|
 | **Sign in** (`/`) | Everyone | Email and password. Staff land on the dashboard, employees on their own incidents. |
-| **My incidents** | Everyone | What I reported and what's assigned to me, as a board with a column per status. Cards can be dragged between columns. |
+| **Create an account** (`/register`) | New employees | Name, `@acme.inc` email and password. Signs them straight in as an employee. Engineers, managers and the admin are never created here; the admin adds engineers. |
+| **My incidents** | Everyone | What I reported and what's assigned to me, as a board with a column per status. Cards can be dragged between columns. Closed shows the newest 5 until you ask for the rest. |
 | **Report an incident** | Everyone | Category, building, floor and seat picked by name. It warns when a similar incident is already open at the same place, so people don't report the same thing twice. The warning shows only each one's title, category and place, with no link, because the reporter may not be allowed to see it. |
 | **Incidents** | Everyone (each sees only what they're allowed to) | Search and filters (status, priority, category, building, assignee, escalated). Filters are kept in the address, so a link can be shared or the page reloaded. |
 | **Incident detail** | Anyone who can see the incident | A picture of the workflow, the actions this person is allowed to take, one timeline of notes and history, and the reporter's rating. |
@@ -26,6 +27,8 @@ ACME's offices have problems: broken printers, bad Wi-Fi, a leaking kitchen tap.
 | **My dashboard** | Engineers | Their own workload and performance. |
 | **Engineers** | Admin | Add engineers, edit them, mark them available or not, deactivate and reactivate them. |
 | **Facilities** | Admin | Buildings, floors, seats and categories: add, edit, delete. |
+
+Every page works on a phone, a tablet and a desktop. On phones and tablets the links move into a menu behind a button in the top bar, and the board's columns stack on phones.
 
 ### How an incident moves
 
@@ -121,7 +124,8 @@ Then open **http://localhost:3000** and sign in with any demo account, for examp
 |---|---|---|---|
 | Backend unit tests | `backend/<service>/tests/` | 448 (auth 110, incidents 226, facilities 83, analytics 29) | The rules work: who can do what, input checks, every workflow move, every error message. The database is faked, so they run in seconds, and a test that tries to reach a real database fails on purpose. |
 | Backend integration tests | `backend/<service>/integration/` | 40 more | Real requests through each service against a real, freshly seeded PostgreSQL database. Nothing is faked. |
-| Frontend tests | `frontend/tests/` | 160 | Each page shows the right things for each role, handles loading and errors, and sends the right requests. |
+| Frontend tests | `frontend/tests/` | 171 | Each page shows the right things for each role, handles loading and errors, and sends the right requests. |
+| End-to-end tests (Playwright) | `frontend/tests/e2e/` | 8, each run at desktop, tablet and phone size (24 runs) | The real app in a real browser: registering, one incident's whole life across four people (report, assign, work, resolve, rate), that someone else gets "not found", and that every role's pages load and fit the screen with no sideways scrolling. |
 | Load tests | `load-tests/` | 5 runs | How fast it is with lots of people at once. See [docs/load-testing.md](docs/load-testing.md). |
 
 **How to run them**
@@ -137,11 +141,15 @@ cd backend/incidents && pytest tests integration --cov=service --cov=routes --co
 
 # Frontend
 cd frontend && npm test
+
+# End-to-end, in a real browser at three screen sizes (needs ./bin/start-dev.sh running)
+cd frontend && npm run test:e2e
+# They add an account and incidents to the local database; ./bin/init-db.sh --reset clears them.
 ```
 
 **Results.** Everything passes. How much of our own code the tests run through: **auth 96%, incidents 99%, facilities 98%, analytics 100%**. The shared code is measured once, in auth. CI fails any service under 80%.
 
-**What CI checks on every push:** code style (ruff, eslint), a security scan of the Python code (bandit), that the demo data file matches its generator, that the database tables and demo data load cleanly twice in a row, every test above except load tests, the frontend build, Terraform formatting and validation, and an npm security audit.
+**What CI checks on every push:** code style (ruff, eslint), a security scan of the Python code (bandit), that the demo data file matches its generator, that the database tables and demo data load cleanly twice in a row, every test above except load and end-to-end tests (those need the whole app running), the frontend build, Terraform formatting and validation, and an npm security audit.
 
 ## Deploying
 
@@ -178,8 +186,7 @@ cd frontend && npm test
 
 What I knowingly left out, roughly in order of importance:
 
-- **No register page in the app.** Registration works on the server (`POST /api/auth/register`, `@acme.inc` emails only) and is tested, but there's no page for it yet. New employees can't sign themselves up from the app.
-- **No end-to-end browser tests.** The pieces are tested separately (unit, integration, frontend, load), but there's no test that clicks through the real app in a browser.
+- **End-to-end tests run on my machine, not in CI.** They need the whole app running (LocalStack, the database and the frontend), which CI doesn't start.
 - **Signing out isn't instant everywhere.** A deactivated engineer can't sign in again, but if they were already signed in, that session can keep working for up to 8 hours, until their sign-in token runs out.
 - **No emails or notifications.** Employees see progress when they open the app, not by email.
 - **No live updates.** Other people's changes show after a reload or the next action, not as they happen.
@@ -237,7 +244,7 @@ The cloud database is only reachable from the Lambdas. On the first start, a Lam
 | `fred@acme.inc`, `tina@acme.inc`, `omar@acme.inc` | Engineer |
 | `eve@acme.inc`, `sam@acme.inc` | Employee |
 
-The data is only loaded again when the seed version goes up (see [Cloud: versioned reseed](#demo-data-bulk-seed)), so changing `SEED_PASSWORD` has no effect on existing accounts until the next reseed, which gives every seeded account the new password. New employees can register with an `@acme.inc` address through the API (`POST /api/auth/register`); there's no register page in the app yet (see [Known gaps](#known-gaps)).
+The data is only loaded again when the seed version goes up (see [Cloud: versioned reseed](#demo-data-bulk-seed)), so changing `SEED_PASSWORD` has no effect on existing accounts until the next reseed, which gives every seeded account the new password. New employees can create an account with an `@acme.inc` address on the **Create an account** page (`/register`).
 
 ### Developing against the cloud
 

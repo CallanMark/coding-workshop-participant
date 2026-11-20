@@ -45,6 +45,17 @@ export function formatWhen(value) {
 }
 
 /**
+ * A date and time in the same UK style as the timeline, everywhere in the app.
+ * @param {string} value - ISO timestamp.
+ * @returns {string} e.g. "20 Nov 2026, 07:26"
+ */
+export function formatDateTime(value) {
+  return new Date(value).toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/**
  * The colour of an event's dot on the timeline (a theme palette name).
  * @param {object} event
  * @returns {string}

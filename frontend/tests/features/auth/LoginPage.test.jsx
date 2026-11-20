@@ -10,7 +10,7 @@ import { loadSession, saveSession } from '../../../src/api/session';
 import AuthProvider from '../../../src/context/AuthProvider';
 import LoginPage from '../../../src/features/auth/LoginPage';
 
-vi.mock('../../../src/api/auth', () => ({ login: vi.fn(), fetchMe: vi.fn() }));
+vi.mock('../../../src/api/auth', () => ({ login: vi.fn(), register: vi.fn(), fetchMe: vi.fn() }));
 
 const EVE = {
   id: 2, name: 'Eve Employee', email: 'eve@acme.inc', role: 'employee', team_id: null,

@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
 import { canOpen, homePath, useAuth } from '../../context/auth';
+import AuthCard from './AuthCard';
 
-const PUBLIC_PATHS = ['/', '/login'];
+const PUBLIC_PATHS = ['/', '/login', '/register'];
 
 /**
  * Check the form before submitting. The server returns one generic 401 for every failed
@@ -77,59 +75,53 @@ export default function LoginPage() {
   };
 
   return (
-    <Box
-      component="main"
-      sx={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2,
-      }}
+    <AuthCard
+      title="Sign in"
+      intro="Report and track facility incidents."
+      switchText="New here?"
+      switchLabel="Create an account"
+      switchTo="/register"
     >
-      <Paper variant="outlined" sx={{ p: { xs: 3, sm: 4 }, width: '100%', maxWidth: 420 }}>
-        <Typography variant="overline" color="primary">ACME Facilities</Typography>
-        <Typography variant="h5" component="h1" gutterBottom>Sign in</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Report and track facility incidents.
-        </Typography>
-        <form onSubmit={handleSubmit} noValidate>
-          <Stack spacing={2}>
-            {notice && !formError && <Alert severity="info">{notice}</Alert>}
-            {formError && <Alert severity="error">{formError}</Alert>}
-            <TextField
-              name="email"
-              label="Email"
-              type="email"
-              autoComplete="username"
-              autoFocus
-              required
-              value={form.email}
-              onChange={handleChange}
-              error={Boolean(errors.email)}
-              helperText={errors.email}
-              disabled={submitting}
-            />
-            <TextField
-              name="password"
-              label="Password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={form.password}
-              onChange={handleChange}
-              error={Boolean(errors.password)}
-              helperText={errors.password}
-              disabled={submitting}
-            />
-            <Button
-              type="submit"
-              variant="contained"
-              size="large"
-              disabled={submitting}
-              startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : null}
-            >
-              {submitting ? 'Signing in…' : 'Sign in'}
-            </Button>
-          </Stack>
-        </form>
-      </Paper>
-    </Box>
+      <form onSubmit={handleSubmit} noValidate>
+        <Stack spacing={2}>
+          {notice && !formError && <Alert severity="info">{notice}</Alert>}
+          {formError && <Alert severity="error">{formError}</Alert>}
+          <TextField
+            name="email"
+            label="Email"
+            type="email"
+            autoComplete="username"
+            autoFocus
+            required
+            value={form.email}
+            onChange={handleChange}
+            error={Boolean(errors.email)}
+            helperText={errors.email}
+            disabled={submitting}
+          />
+          <TextField
+            name="password"
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={form.password}
+            onChange={handleChange}
+            error={Boolean(errors.password)}
+            helperText={errors.password}
+            disabled={submitting}
+          />
+          <Button
+            type="submit"
+            variant="contained"
+            size="large"
+            disabled={submitting}
+            startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : null}
+          >
+            {submitting ? 'Signing in…' : 'Sign in'}
+          </Button>
+        </Stack>
+      </form>
+    </AuthCard>
   );
 }

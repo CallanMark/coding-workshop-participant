@@ -23,6 +23,9 @@ import StatusReasonDialog from './StatusReasonDialog';
 
 const loadMine = () => listIncidents({ mine: true });
 
+/** Closed incidents only pile up, so the column shows the newest few until asked for the rest. */
+const CLOSED_SHOWN = 5;
+
 /**
  * Kanban board of the user's incidents; drag a card to another column to change its status.
  * @param {{user: {id: number, name: string}}} props
@@ -32,6 +35,7 @@ function IncidentBoard({ user }) {
   const [dragged, setDragged] = useState(null); // incident being dragged
   const [pendingMove, setPendingMove] = useState(null); // { incident, to } waiting for a reason
   const [toast, setToast] = useState(null); // { severity, message }
+  const [allClosed, setAllClosed] = useState(false);
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
@@ -99,9 +103,19 @@ function IncidentBoard({ user }) {
         onDragEnd={handleDragEnd}
         onDragCancel={() => setDragged(null)}
       >
-        <Box sx={{ display: 'flex', gap: 1.5, overflowX: 'auto', pb: 1, alignItems: 'flex-start' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            alignItems: { xs: 'stretch', sm: 'flex-start' },
+            gap: 1.5,
+            overflowX: 'auto',
+            pb: 1,
+          }}
+        >
           {Object.keys(STATUSES).map((status) => {
             const incidents = mine.data.filter((i) => i.status === status);
+            const hidden = status === 'closed' && !allClosed ? Math.max(incidents.length - CLOSED_SHOWN, 0) : 0;
             return (
               <BoardColumn
                 key={status}
@@ -109,9 +123,12 @@ function IncidentBoard({ user }) {
                 count={incidents.length}
                 draggingFrom={dragged ? dragged.status : null}
               >
-                {incidents.map((incident) => (
+                {incidents.slice(0, incidents.length - hidden).map((incident) => (
                   <BoardCard key={incident.id} incident={incident} userId={user.id} />
                 ))}
+                {hidden > 0 && (
+                  <Button size="small" onClick={() => setAllClosed(true)}>Show all {incidents.length} closed</Button>
+                )}
               </BoardColumn>
             );
           })}

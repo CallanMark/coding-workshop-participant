@@ -52,6 +52,20 @@ describe('incident pages use the signed-in user', () => {
     expect(listIncidents).toHaveBeenCalledWith({ mine: true });
   });
 
+  it('the board shows the newest 5 closed incidents until asked for the rest', async () => {
+    const closed = Array.from({ length: 7 }, (_, i) => ({
+      id: 100 + i, title: `Closed ${i + 1}`, status: 'closed', priority: 'low', reporter_id: 4,
+      category_name: 'HVAC', team_name: 'Facilities', building_name: 'HQ Tower', created_at: '2026-11-01T09:00:00Z',
+    }));
+    listIncidents.mockResolvedValue(closed);
+    renderAs(USERS.engineer, <MyIncidentsPage />);
+
+    expect(await screen.findByText(/Closed 5/)).toBeInTheDocument();
+    expect(screen.queryByText(/Closed 6/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show all 7 closed' }));
+    expect(screen.getByText(/Closed 7/)).toBeInTheDocument();
+  });
+
   it.each([
     ['admin', 'All incidents'],
     ['manager', 'Team incidents'],

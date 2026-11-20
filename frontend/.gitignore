@@ -1,0 +1,4 @@
+
+# Playwright end-to-end output
+test-results/
+playwright-report/
