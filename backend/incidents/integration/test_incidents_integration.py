@@ -179,10 +179,13 @@ def test_feedback_on_completed_work_reaches_the_manager(api, report):
 # --- duplicates, engineers, delete ------------------------------------------------------
 
 def test_a_second_report_at_the_same_place_finds_the_first(api, report):
-    first = report(title="Screen dead at 1-01")
+    report(title="Screen dead at 1-01")
     matches = api("GET", "/duplicates", as_user="sam@acme.inc", query_params={
         "category_id": str(IT_HARDWARE), "building_id": str(HQ), "floor_id": str(HQ_FLOOR_1)})[1]
-    assert first["id"] in [m["id"] for m in matches]
+    mine = next(m for m in matches if m["title"] == "Screen dead at 1-01")
+    assert mine["seat_code"] == "1-01"
+    # Only the title and where it is: nothing that identifies or opens an incident Sam may not see.
+    assert {key for m in matches for key in m} == {"title", "category_name", "building_name", "floor_name", "seat_code"}
 
 
 def test_the_assign_list_is_the_teams_active_engineers(api):

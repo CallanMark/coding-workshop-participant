@@ -2,7 +2,7 @@ import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
 import {
-  changeIncidentStatus, createIncident, findDuplicates, getIncident, getIncidentSummary, listEngineers, listIncidents, locationQuery,
+  changeIncidentStatus, createIncident, findDuplicates, getIncident, listEngineers, listIncidents, locationQuery,
 } from '../../src/api/incidents';
 
 /** The path and parsed body of the one fetch call made. */
@@ -53,11 +53,6 @@ describe('incidents API', () => {
 
   it('leaves out an empty floor (no floor matches no floor on the server)', () => {
     expect(locationQuery({ category_id: '1', building_id: '2', floor_id: '' })).toBe('category_id=1&building_id=2');
-  });
-
-  it('asks for a summary with the same place it was found for', async () => {
-    await getIncidentSummary(5, { category_id: 1, building_id: 2 });
-    expect(sent(fetchMock).path).toBe('/incidents/5/summary?category_id=1&building_id=2');
   });
 
   it('sends only the filters that are set', async () => {

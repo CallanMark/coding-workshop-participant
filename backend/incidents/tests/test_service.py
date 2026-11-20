@@ -65,11 +65,8 @@ def repo(monkeypatch):
 
     def find_duplicates(category_id, building_id, floor_id, limit):
         state["duplicate_calls"].append((category_id, building_id, floor_id, limit))
-        return [{"id": 1, "title": "Air con not working"}]
-
-    def get_duplicate(incident_id, category_id, building_id, floor_id):
-        match = (incident_id, category_id, building_id, floor_id) == (1, 1, 1, 1)
-        return {"id": 1, "title": "Air con not working"} if match else None
+        return [{"title": "Air con not working", "category_name": "HVAC", "building_name": "HQ Tower",
+                 "floor_name": "Ground", "seat_code": None}]
 
     def insert_incident(fields):
         state["inserted"] = fields
@@ -85,7 +82,6 @@ def repo(monkeypatch):
     monkeypatch.setattr(repository, "update_incident", update_incident)
     monkeypatch.setattr(repository, "delete_incident", delete_incident)
     monkeypatch.setattr(repository, "find_duplicates", find_duplicates)
-    monkeypatch.setattr(repository, "get_duplicate", get_duplicate)
     monkeypatch.setattr(repository, "get_category_team", {1: 1, 4: 2}.get)
     state["feedback"] = {}
     users = {u["id"]: {**u, "name": f"User {u['id']}", "team_name": None, "is_active": True, "is_available": True}
@@ -159,7 +155,7 @@ def call(method, path, user=None, body=None, query=None):
 
 @pytest.mark.parametrize("method,path", [
     ("GET", "/"), ("GET", "/10"), ("POST", "/"), ("PUT", "/10"), ("DELETE", "/10"), ("POST", "/10/status"),
-    ("POST", "/10/escalate"), ("POST", "/10/assign"), ("GET", "/duplicates"), ("GET", "/10/summary"),
+    ("POST", "/10/escalate"), ("POST", "/10/assign"), ("GET", "/duplicates"),
     ("PUT", "/10/feedback"), ("GET", "/10/feedback"), ("GET", "/engineers/4/feedback"),
     ("GET", "/10/notes"), ("POST", "/10/notes"), ("PUT", "/10/notes/1"), ("DELETE", "/10/notes/1"),
     ("GET", "/10/events"), ("GET", "/engineers"),
@@ -462,7 +458,8 @@ def test_unknown_category_on_edit_is_a_field_error(repo):
 def test_duplicates_for_a_place_and_category(repo):
     status, body = call("GET", "/duplicates", SAM, query={"category_id": "1", "building_id": "1", "floor_id": "1"})
     assert status == 200
-    assert body == [{"id": 1, "title": "Air con not working"}]
+    assert body == [{"title": "Air con not working", "category_name": "HVAC", "building_name": "HQ Tower",
+                     "floor_name": "Ground", "seat_code": None}]
     assert repo["duplicate_calls"] == [(1, 1, 1, service.MAX_DUPLICATES)]
 
 
@@ -477,10 +474,10 @@ def test_duplicates_need_category_and_building(repo):
     assert set(body["error"]["details"]) == {"category_id", "building_id", "floor_id"}
 
 
-def test_summary_only_for_a_matching_duplicate(repo):
-    match = {"category_id": "1", "building_id": "1", "floor_id": "1"}
-    assert call("GET", "/1/summary", SAM, query=match)[0] == 200
-    assert call("GET", "/1/summary", SAM, query={**match, "category_id": "2"})[0] == 404
+def test_there_is_no_way_to_open_a_duplicate_from_the_report_form(repo):
+    """The old /{id}/summary page is gone: a reporter must never get a way into an incident they can't see."""
+    status, _ = call("GET", "/1/summary", SAM, query={"category_id": "1", "building_id": "1", "floor_id": "1"})
+    assert status == 404
 
 
 # --- reporter feedback (private from the engineer) ----------------------------------
