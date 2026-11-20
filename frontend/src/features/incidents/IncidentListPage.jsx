@@ -23,6 +23,7 @@ import { PriorityChip, StatusChip } from '../../components/IncidentChips';
 import Loaded from '../../components/Loaded';
 import useApi from '../../hooks/useApi';
 import useQueryParams from '../../hooks/useQueryParams';
+import { formatDateTime } from './eventText';
 
 /**
  * Join building / floor / seat into one readable location string.
@@ -33,15 +34,6 @@ function formatLocation(incident) {
   return [incident.building_name, incident.floor_name, incident.seat_code]
     .filter(Boolean)
     .join(' · ');
-}
-
-/**
- * Format an ISO timestamp for display in the user's locale.
- * @param {string} value
- * @returns {string}
- */
-function formatDate(value) {
-  return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 const incidentShape = PropTypes.shape({
@@ -92,7 +84,7 @@ function IncidentTable({ incidents }) {
               <TableCell>{formatLocation(incident)}</TableCell>
               <TableCell>{incident.reporter_name}</TableCell>
               <TableCell>{incident.assignee_name || 'Unassigned'}</TableCell>
-              <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(incident.created_at)}</TableCell>
+              <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDateTime(incident.created_at)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -127,7 +119,7 @@ function IncidentCards({ incidents }) {
               {` — ${incident.category_name} (${incident.team_name})`}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {incident.assignee_name || 'Unassigned'} · {formatDate(incident.created_at)}
+              {incident.assignee_name || 'Unassigned'} · {formatDateTime(incident.created_at)}
             </Typography>
           </CardContent>
         </Card>

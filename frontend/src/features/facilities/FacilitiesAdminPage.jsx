@@ -142,7 +142,14 @@ export default function FacilitiesAdminPage() {
   return (
     <Stack spacing={2}>
       <Typography variant="h5" component="h1">Facilities</Typography>
-      <Tabs value={tab} onChange={(_, value) => update({ tab: value })} aria-label="Facilities">
+      <Tabs
+        value={tab}
+        onChange={(_, value) => update({ tab: value })}
+        aria-label="Facilities"
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+      >
         {TABS.map((t) => <Tab key={t.value} value={t.value} label={t.label} />)}
       </Tabs>
       {(tab === 'floors' || tab === 'seats') && (

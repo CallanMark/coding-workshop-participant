@@ -16,6 +16,7 @@ import {
 import { EscalatedChip, PriorityChip, StatusChip } from '../../components/IncidentChips';
 import { REASON_REQUIRED, STATUSES } from '../../constants';
 import { useAuth } from '../../context/auth';
+import { formatDateTime } from './eventText';
 import FeedbackCard from './FeedbackCard';
 import { allowedActions } from './incidentAccess';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -37,7 +38,7 @@ const MOVE_LABELS = {
   'open>closed': 'Cancel incident',
 };
 
-const when = (value) => (value ? new Date(value).toLocaleString() : '—');
+const when = (value) => (value ? formatDateTime(value) : '—');
 
 /** One label/value row in the details card. */
 function Fact({ label, children }) {

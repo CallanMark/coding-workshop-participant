@@ -48,13 +48,16 @@ export default function FacilitySection({ noun, list, columns, fields, nameOf, t
                   {row[c.key] ?? '—'}
                 </TableCell>
               ))}
-              <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                <Button size="small" onClick={() => setDialog({ mode: 'edit', row })} aria-label={`Edit ${nameOf(row)}`}>
-                  Edit
-                </Button>
-                <Button size="small" color="error" onClick={() => setDialog({ mode: 'delete', row })} aria-label={`Delete ${nameOf(row)}`}>
-                  Delete
-                </Button>
+              {/* Side by side on wider screens; stacked on phones so the table fits. */}
+              <TableCell align="right" sx={{ whiteSpace: 'nowrap', '& .MuiButton-root': { minWidth: 0 } }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+                  <Button size="small" onClick={() => setDialog({ mode: 'edit', row })} aria-label={`Edit ${nameOf(row)}`}>
+                    Edit
+                  </Button>
+                  <Button size="small" color="error" onClick={() => setDialog({ mode: 'delete', row })} aria-label={`Delete ${nameOf(row)}`}>
+                    Delete
+                  </Button>
+                </Stack>
               </TableCell>
             </TableRow>
           ))}
