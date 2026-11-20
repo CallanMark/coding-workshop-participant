@@ -45,6 +45,9 @@ export const ACTIVE_STATUSES = ['open', 'in_progress', 'blocked'];
 /** Moves that need a reason ("from>to"); mirrors the backend. */
 export const REASON_REQUIRED = new Set(['in_progress>blocked', 'resolved>in_progress', 'open>closed']);
 
+/** "Available" / "Unavailable" for an engineer's is_available flag: one wording everywhere. */
+export const availabilityLabel = (available) => (available ? 'Available' : 'Unavailable');
+
 /** Incident priority → label and MUI Chip colour. */
 export const PRIORITIES = {
   low: { label: 'Low', color: 'default' },

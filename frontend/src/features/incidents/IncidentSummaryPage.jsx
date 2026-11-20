@@ -1,13 +1,26 @@
-import { useEffect, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { getIncident, getIncidentSummary } from '../../api/incidents';
 import { PriorityChip, StatusChip } from '../../components/IncidentChips';
+import Loaded from '../../components/Loaded';
+import useApi from '../../hooks/useApi';
+
+/**
+ * The summary (what this page shows) and whether the full incident is visible too (only decides whether to
+ * offer a link to it). useApi loads by one key, "<id>?<location query>".
+ */
+const loadSummary = (key) => {
+  const [id, query] = key.split('?');
+  const location = Object.fromEntries(new URLSearchParams(query));
+  return Promise.allSettled([getIncidentSummary(id, location), getIncident(id)]).then(([summary, full]) => {
+    if (summary.status === 'rejected') throw summary.reason;
+    return { summary: summary.value, canOpen: full.status === 'fulfilled' };
+  });
+};
 
 /**
  * Read-only summary of a possible duplicate, opened from the report form's suggestions.
@@ -18,42 +31,20 @@ export default function IncidentSummaryPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const query = searchParams.toString();
-  const [reloadKey, setReloadKey] = useState(0);
-  const [state, setState] = useState({ loading: true, error: null, summary: null, canOpen: false });
-
-  useEffect(() => {
-    let ignore = false;
-    const location = Object.fromEntries(new URLSearchParams(query));
-    // The summary is what this page shows; the full incident only decides whether to offer a link to it.
-    Promise.allSettled([getIncidentSummary(id, location), getIncident(id)]).then(([summary, full]) => {
-      if (ignore) return;
-      if (summary.status === 'rejected') {
-        setState({ loading: false, error: summary.reason, summary: null, canOpen: false });
-      } else {
-        setState({ loading: false, error: null, summary: summary.value, canOpen: full.status === 'fulfilled' });
-      }
-    });
-    return () => {
-      ignore = true;
-    };
-  }, [id, query, reloadKey]);
-
-  const retry = () => {
-    setState((prev) => ({ ...prev, loading: true }));
-    setReloadKey((key) => key + 1);
-  };
-
-  const { loading, error, summary, canOpen } = state;
-  if (loading) return <CircularProgress aria-label="Loading incident" />;
-  if (error) {
-    return error.status === 404 ? (
-      <Alert severity="info">This incident is no longer open at that place, or it does not exist.</Alert>
-    ) : (
-      <Alert severity="error" action={<Button color="inherit" size="small" onClick={retry}>Retry</Button>}>
-        {error.message}
-      </Alert>
+  const loaded = useApi(loadSummary, `${id}?${query}`);
+  if (loaded.status !== 'ready') {
+    return (
+      <Loaded
+        result={loaded}
+        label="incident"
+        notFound={<Alert severity="info">This incident is no longer open at that place, or it does not exist.</Alert>}
+      >
+        {() => null}
+      </Loaded>
     );
   }
+
+  const { summary, canOpen } = loaded.data;
 
   const place = [summary.building_name, summary.floor_name].filter(Boolean).join(', ');
   return (

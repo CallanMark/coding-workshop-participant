@@ -6,30 +6,30 @@
  * - Admins pick the team (?team=, default the first) and also see location hotspots.
  */
 import PropTypes from 'prop-types';
-import { Link as RouterLink, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import Button from '@mui/material/Button';
-import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { getTeamDashboard } from '../../api/analytics';
 import { listTeams } from '../../api/facilities';
 import { hasRole, useAuth } from '../../context/auth';
 import Loaded from '../../components/Loaded';
-import useApiList from '../../hooks/useApiList';
+import TeamSelect from '../../components/TeamSelect';
+import useApi from '../../hooks/useApi';
+import useQueryParams from '../../hooks/useQueryParams';
 import { DashboardGrid, WindowPicker } from './DashboardParts';
 import DashboardSummary from './DashboardSummary';
 import LocationHotspots from './LocationHotspots';
 import useWindow from './useWindow';
 import Workload from './Workload';
 
-// useApiList loads by one key, so the team and window travel together as "teamId/days".
+// useApi loads by one key, so the team and window travel together as "teamId/days".
 const loadTeamDashboard = (key) => getTeamDashboard(...key.split('/'));
 
 function TeamDashboard({ teamId, days, teamPicker }) {
   const { user } = useAuth();
   const [, setDays] = useWindow();
-  const dashboard = useApiList(loadTeamDashboard, `${teamId}/${days}`);
+  const dashboard = useApi(loadTeamDashboard, `${teamId}/${days}`);
   const name = dashboard.status === 'ready' ? dashboard.data.team.name : '';
   return (
     <Stack spacing={2}>
@@ -64,23 +64,14 @@ TeamDashboard.propTypes = {
 
 /** Admins: choose any team; the choice is kept in the URL as ?team=. */
 function AdminTeamDashboard({ days }) {
-  const [params, setParams] = useSearchParams();
-  const teams = useApiList(listTeams, 'all');
+  const [params, update] = useQueryParams();
+  const teams = useApi(listTeams, 'all');
   return (
     <Loaded result={teams} label="teams">
       {(rows) => {
         if (rows.length === 0) return <Typography>No teams yet.</Typography>;
         const chosen = rows.some((t) => String(t.id) === params.get('team')) ? params.get('team') : String(rows[0].id);
-        const choose = (event) => {
-          const next = new URLSearchParams(params);
-          next.set('team', event.target.value);
-          setParams(next, { replace: true });
-        };
-        const picker = (
-          <TextField select size="small" label="Team" value={chosen} onChange={choose} sx={{ minWidth: 220 }}>
-            {rows.map((t) => <MenuItem key={t.id} value={String(t.id)}>{t.name}</MenuItem>)}
-          </TextField>
-        );
+        const picker = <TeamSelect teams={rows} value={chosen} onChange={(team) => update({ team })} />;
         return <TeamDashboard teamId={chosen} days={days} teamPicker={picker} />;
       }}
     </Loaded>

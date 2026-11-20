@@ -7,7 +7,7 @@ import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { PriorityChip } from '../../components/IncidentChips';
+import { EscalatedChip, PriorityChip } from '../../components/IncidentChips';
 
 const boardIncidentShape = PropTypes.shape({
   id: PropTypes.number.isRequired,
@@ -45,7 +45,7 @@ export function BoardCardContent({ incident, userId }) {
         <PriorityChip priority={incident.priority} />
         {incident.reporter_id === userId && <Chip size="small" label="You reported" />}
         {incident.assignee_id === userId && <Chip size="small" label="Assigned to you" />}
-        {incident.is_escalated && <Chip size="small" color="error" variant="outlined" label="Escalated" />}
+        {incident.is_escalated && <EscalatedChip />}
       </Stack>
       <Typography variant="caption" color="text.secondary" component="p">{location}</Typography>
       <Typography variant="caption" color="text.secondary" component="p">

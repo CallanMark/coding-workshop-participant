@@ -6,7 +6,6 @@
 import PropTypes from 'prop-types';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
@@ -17,7 +16,8 @@ import Typography from '@mui/material/Typography';
 import { getEngineerDashboard } from '../../api/analytics';
 import { hasRole, useAuth } from '../../context/auth';
 import Loaded from '../../components/Loaded';
-import useApiList from '../../hooks/useApiList';
+import { AvailabilityChip } from '../../components/PersonChips';
+import useApi from '../../hooks/useApi';
 import {
   DashboardGrid, Section, WindowPicker,
 } from './DashboardParts';
@@ -25,7 +25,7 @@ import DashboardSummary from './DashboardSummary';
 import { formatAge } from './format';
 import useWindow from './useWindow';
 
-// useApiList loads by one key, so the engineer and window travel together as "id/days".
+// useApi loads by one key, so the engineer and window travel together as "id/days".
 const loadEngineerDashboard = (key) => getEngineerDashboard(...key.split('/'));
 
 function Feedback({ feedback }) {
@@ -76,7 +76,7 @@ export default function EngineerDashboardPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const [days, setDays] = useWindow();
-  const dashboard = useApiList(loadEngineerDashboard, `${id}/${days}`);
+  const dashboard = useApi(loadEngineerDashboard, `${id}/${days}`);
   const own = String(user.id) === id;
   const engineer = dashboard.status === 'ready' ? dashboard.data.engineer : null;
   // Back to the team the engineer is on (admins land on that team in the picker).
@@ -95,12 +95,7 @@ export default function EngineerDashboardPage() {
           {engineer && (
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography variant="body2" color="text.secondary">{engineer.team_name}</Typography>
-              <Chip
-                size="small"
-                variant="outlined"
-                color={engineer.is_available ? 'success' : 'default'}
-                label={engineer.is_available ? 'Available' : 'Unavailable'}
-              />
+              <AvailabilityChip available={engineer.is_available} />
             </Stack>
           )}
         </Stack>

@@ -27,3 +27,8 @@ export function PriorityChip({ priority }) {
 PriorityChip.propTypes = {
   priority: PropTypes.string.isRequired,
 };
+
+/** The "Escalated" flag on an incident, styled the same everywhere. */
+export function EscalatedChip() {
+  return <Chip size="small" color="error" label="Escalated" />;
+}

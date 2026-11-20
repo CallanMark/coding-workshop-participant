@@ -4,14 +4,13 @@
  */
 import PropTypes from 'prop-types';
 import { Link as RouterLink } from 'react-router-dom';
-import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import ListItemText from '@mui/material/ListItemText';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { PriorityChip, StatusChip } from '../../components/IncidentChips';
+import { EscalatedChip, PriorityChip, StatusChip } from '../../components/IncidentChips';
 import { PRIORITIES } from '../../constants';
 import {
   PRIORITY_COLORS, STATUS_COLORS, foldSlices,
@@ -102,7 +101,7 @@ function WaitingLongest({ incidents }) {
                 secondary={`${incident.assignee_name || 'Unassigned'} · reported ${formatAge(incident.created_at)}`}
               />
               <Stack direction="row" spacing={0.5} sx={{ ml: 1, flexShrink: 0 }}>
-                {incident.is_escalated && <Chip size="small" color="warning" label="Escalated" />}
+                {incident.is_escalated && <EscalatedChip />}
                 <StatusChip status={incident.status} />
                 <PriorityChip priority={incident.priority} />
               </Stack>

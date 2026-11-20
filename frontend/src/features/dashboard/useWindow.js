@@ -1,7 +1,7 @@
 /**
  * The dashboard time window, kept in the URL as ?days= so a reload or shared link keeps it.
  */
-import { useSearchParams } from 'react-router-dom';
+import useQueryParams from '../../hooks/useQueryParams';
 
 export const WINDOWS = ['7', '30', '90'];
 const DEFAULT_WINDOW = '30';
@@ -12,12 +12,7 @@ const DEFAULT_WINDOW = '30';
  * @returns {[string, function(string): void]}
  */
 export default function useWindow() {
-  const [params, setParams] = useSearchParams();
+  const [params, update] = useQueryParams();
   const days = WINDOWS.includes(params.get('days')) ? params.get('days') : DEFAULT_WINDOW;
-  const setDays = (value) => {
-    const next = new URLSearchParams(params);
-    next.set('days', value);
-    setParams(next, { replace: true });
-  };
-  return [days, setDays];
+  return [days, (value) => update({ days: value })];
 }

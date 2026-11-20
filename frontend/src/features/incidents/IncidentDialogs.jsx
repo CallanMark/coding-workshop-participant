@@ -1,18 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import PropTypes from 'prop-types';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import ListItemText from '@mui/material/ListItemText';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import { listEngineers } from '../../api/incidents';
-import { PRIORITIES } from '../../constants';
+import { PRIORITIES, availabilityLabel } from '../../constants';
+import useApi from '../../hooks/useApi';
 import { CategorySelect, LocationFields } from '../facilities/FacilityFields';
 
 /**
@@ -22,18 +22,8 @@ import { CategorySelect, LocationFields } from '../facilities/FacilityFields';
  * @param {{incident: object, error?: string, onCancel: function(): void, onConfirm: function(number|null): void}} props
  */
 export function AssignDialog({ incident, error = '', onCancel, onConfirm }) {
-  const [engineers, setEngineers] = useState({ status: 'loading', list: [], error: '' });
+  const engineers = useApi(listEngineers, incident.team_id);
   const [choice, setChoice] = useState(incident.assignee_id ? String(incident.assignee_id) : '');
-
-  useEffect(() => {
-    let ignore = false;
-    listEngineers(incident.team_id)
-      .then((list) => { if (!ignore) setEngineers({ status: 'ready', list, error: '' }); })
-      .catch((err) => { if (!ignore) setEngineers({ status: 'error', list: [], error: err.message }); });
-    return () => {
-      ignore = true;
-    };
-  }, [incident.team_id]);
 
   const submit = (event) => {
     event.preventDefault();
@@ -42,7 +32,7 @@ export function AssignDialog({ incident, error = '', onCancel, onConfirm }) {
 
   let helper = error || `Engineers on ${incident.team_name}.`;
   if (engineers.status === 'error') helper = engineers.error;
-  if (engineers.status === 'ready' && engineers.list.length === 0) helper = `${incident.team_name} has no active engineers.`;
+  if (engineers.status === 'ready' && engineers.data.length === 0) helper = `${incident.team_name} has no active engineers.`;
 
   return (
     <Dialog open onClose={onCancel} fullWidth maxWidth="xs">
@@ -57,15 +47,15 @@ export function AssignDialog({ incident, error = '', onCancel, onConfirm }) {
             label="Engineer"
             value={engineers.status === 'ready' ? choice : ''}
             onChange={(e) => setChoice(e.target.value)}
-            disabled={engineers.status !== 'ready' || engineers.list.length === 0}
+            disabled={engineers.status !== 'ready' || engineers.data.length === 0}
             error={Boolean(error) || engineers.status === 'error'}
             helperText={engineers.status === 'loading' ? 'Loading engineers…' : helper}
           >
-            {engineers.list.map((engineer) => (
+            {engineers.data.map((engineer) => (
               <MenuItem key={engineer.id} value={String(engineer.id)} disabled={!engineer.is_available}>
                 <ListItemText
                   primary={engineer.name}
-                  secondary={`${engineer.is_available ? 'Available' : 'Unavailable'} · ${engineer.open_incidents} open`}
+                  secondary={`${availabilityLabel(engineer.is_available)} · ${engineer.open_incidents} open`}
                 />
               </MenuItem>
             ))}
@@ -186,32 +176,6 @@ export function EditIncidentDialog({ incident, errors = {}, onCancel, onConfirm 
 EditIncidentDialog.propTypes = {
   incident: PropTypes.object.isRequired,
   errors: PropTypes.object,
-  onCancel: PropTypes.func.isRequired,
-  onConfirm: PropTypes.func.isRequired,
-};
-
-/**
- * Yes/no confirmation for something that cannot be undone.
- * @param {{title: string, text: string, confirmLabel: string, onCancel: function(): void,
- *   onConfirm: function(): void}} props
- */
-export function ConfirmDialog({ title, text, confirmLabel, onCancel, onConfirm }) {
-  return (
-    <Dialog open onClose={onCancel} maxWidth="xs">
-      <DialogTitle>{title}</DialogTitle>
-      <DialogContent><DialogContentText>{text}</DialogContentText></DialogContent>
-      <DialogActions>
-        <Button onClick={onCancel}>Cancel</Button>
-        <Button color="error" variant="contained" onClick={onConfirm}>{confirmLabel}</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
-ConfirmDialog.propTypes = {
-  title: PropTypes.string.isRequired,
-  text: PropTypes.string.isRequired,
-  confirmLabel: PropTypes.string.isRequired,
   onCancel: PropTypes.func.isRequired,
   onConfirm: PropTypes.func.isRequired,
 };
