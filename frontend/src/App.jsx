@@ -11,7 +11,6 @@ import FacilitiesAdminPage from './features/facilities/FacilitiesAdminPage';
 import IncidentCreatePage from './features/incidents/IncidentCreatePage';
 import IncidentDetailPage from './features/incidents/IncidentDetailPage';
 import IncidentListPage from './features/incidents/IncidentListPage';
-import IncidentSummaryPage from './features/incidents/IncidentSummaryPage';
 import MyIncidentsPage from './features/incidents/MyIncidentsPage';
 
 // The dashboards carry the charts library, so they load only when first opened.
@@ -34,7 +33,6 @@ export default function App() {
           <Route path="incidents/mine" element={<MyIncidentsPage />} />
           <Route path="incidents/new" element={<IncidentCreatePage />} />
           <Route path="incidents/:id" element={<IncidentDetailPage />} />
-          <Route path="incidents/:id/summary" element={<IncidentSummaryPage />} />
           <Route element={<RequireAuth roles={AREA_ROLES['/dashboard']} />}>
             <Route path="dashboard" element={<Suspense fallback={loading}><TeamDashboardPage /></Suspense>} />
             <Route

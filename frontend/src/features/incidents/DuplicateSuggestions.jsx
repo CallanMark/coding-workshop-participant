@@ -1,25 +1,29 @@
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Link as RouterLink } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
-import Link from '@mui/material/Link';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
-import Stack from '@mui/material/Stack';
+import ListItemText from '@mui/material/ListItemText';
 import Typography from '@mui/material/Typography';
 import { findDuplicates, locationQuery } from '../../api/incidents';
-import { StatusChip } from '../../components/IncidentChips';
 
 /** Wait this long after the last keystroke before checking (ms). */
 export const CHECK_DELAY = 400;
 
 const isId = (value) => /^[1-9]\d*$/.test(value);
 
+/** "Wi-Fi · HQ Tower › Floor 1 › 1-04": the category, then the place as far as it is known. */
+const placeOf = (match) => [
+  match.category_name,
+  [match.building_name, match.floor_name, match.seat_code].filter(Boolean).join(' › '),
+].join(' · ');
+
 /**
  * "Possible duplicates" panel for the report form: active incidents with the same category, building and
  * floor. Shows nothing until category and building are valid, while checking, on error, or with no matches,
- * so it never gets in the way of reporting. Links open in a new tab so the draft is kept.
+ * so it never gets in the way of reporting. Each match shows only its title, category and place, with no
+ * link: the reporter may not be allowed to open it.
  * @param {{categoryId: string, buildingId: string, floorId: string}} props - the form's raw field values.
  */
 export default function DuplicateSuggestions({ categoryId, buildingId, floorId }) {
@@ -49,25 +53,13 @@ export default function DuplicateSuggestions({ categoryId, buildingId, floorId }
       <AlertTitle>Possible duplicates</AlertTitle>
       <Typography variant="body2">
         {matches.length === 1 ? 'An open incident already exists' : `${matches.length} open incidents already exist`}{' '}
-        for this category and place. Check before reporting it again.
+        for this category and place. It may already be reported.
       </Typography>
       <List dense disablePadding>
-        {matches.map((match) => (
-          <ListItem key={match.id} disableGutters>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-              <Link
-                component={RouterLink}
-                to={`/incidents/${match.id}/summary?${query}`}
-                target="_blank"
-                rel="noopener"
-              >
-                #{match.id} {match.title}
-              </Link>
-              <StatusChip status={match.status} />
-              <Typography variant="caption" color="text.secondary">
-                reported {new Date(match.created_at).toLocaleDateString()}
-              </Typography>
-            </Stack>
+        {matches.map((match, index) => (
+          // No id is sent (the reporter may not see these incidents), and the list is only ever replaced.
+          <ListItem key={index} disableGutters>
+            <ListItemText primary={match.title} secondary={placeOf(match)} />
           </ListItem>
         ))}
       </List>

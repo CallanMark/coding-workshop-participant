@@ -85,20 +85,10 @@ def visible_to(user: dict) -> dict | None:
 def find_duplicates(req: Request) -> list[dict]:
     """
     Possible duplicates of an incident being reported: active incidents with the same category, building
-    and floor, as limited summaries. Any signed-in user, so reporters can spot an existing ticket.
+    and floor. Any signed-in user, so reporters can spot an existing ticket. Only each one's title, category
+    and place come back, never a way to open it: the reporter may not be allowed to see it.
     """
     return repository.find_duplicates(**_duplicate_location(req.query), limit=MAX_DUPLICATES)
-
-
-def get_duplicate_summary(req: Request) -> dict:
-    """
-    The summary page a duplicate link opens. Only for an incident that is a possible duplicate for the
-    category and place given (404 otherwise), so it can't be used to browse incidents outside your scope.
-    """
-    summary = repository.get_duplicate(req.params["id"], **_duplicate_location(req.query))
-    if summary is None:
-        raise NotFound("Incident not found")
-    return summary
 
 
 def create_incident(req: Request) -> dict:

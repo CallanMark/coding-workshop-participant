@@ -76,15 +76,14 @@ def list_incidents(visible: dict | None, mine_user_id: int | None = None, filter
     return get_conn().execute(query, params).fetchall()
 
 
-# The limited view of an incident shown to people outside its scope when it may be a duplicate of
-# what they are reporting: no description, reporter, assignee, notes or events.
-SUMMARY_SELECT = """
-    SELECT i.id, i.title, i.status, i.priority, i.created_at,
-           i.category_id, c.name AS category_name, i.building_id, b.name AS building_name,
-           i.floor_id, f.name AS floor_name
+# What the report form shows about a possible duplicate. The reporter may not be allowed to see the incident,
+# so only its title and where it is: no id, status, description, people, notes or history.
+DUPLICATE_SELECT = """
+    SELECT i.title, c.name AS category_name, b.name AS building_name, f.name AS floor_name, s.code AS seat_code
     FROM incidents i
     JOIN buildings b   ON b.id = i.building_id
     LEFT JOIN floors f ON f.id = i.floor_id
+    LEFT JOIN seats s  ON s.id = i.seat_id
     JOIN categories c  ON c.id = i.category_id
 """
 # A possible duplicate: still active, and exactly the same category, building and floor (no floor matches no floor).
@@ -97,18 +96,11 @@ DUPLICATE_WHERE = """
 
 
 def find_duplicates(category_id: int, building_id: int, floor_id: int | None, limit: int) -> list[dict]:
-    """Summaries of active incidents at the same place in the same category, newest first."""
+    """Title and place of active incidents at the same place in the same category, newest first."""
     params = {"category_id": category_id, "building_id": building_id, "floor_id": floor_id, "limit": limit,
               "active": list(ACTIVE_STATUSES)}
-    query = SUMMARY_SELECT + DUPLICATE_WHERE + " ORDER BY i.created_at DESC, i.id DESC LIMIT %(limit)s"
+    query = DUPLICATE_SELECT + DUPLICATE_WHERE + " ORDER BY i.created_at DESC, i.id DESC LIMIT %(limit)s"
     return get_conn().execute(query, params).fetchall()
-
-
-def get_duplicate(incident_id: int, category_id: int, building_id: int, floor_id: int | None) -> dict | None:
-    """One incident's summary, only if it is a possible duplicate for that category and place; else None."""
-    params = {"id": incident_id, "category_id": category_id, "building_id": building_id, "floor_id": floor_id,
-              "active": list(ACTIVE_STATUSES)}
-    return get_conn().execute(SUMMARY_SELECT + DUPLICATE_WHERE + " AND i.id = %(id)s", params).fetchone()
 
 
 def get_incident(incident_id: int) -> dict | None:
