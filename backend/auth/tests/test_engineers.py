@@ -55,10 +55,10 @@ def db(monkeypatch):
         return [u for u in users.values() if u["role"] == "engineer" and team_id in (None, u["team_id"])]
 
     monkeypatch.setattr(repository, "insert_user", insert_user)
-    monkeypatch.setattr(repository, "get_user",
+    monkeypatch.setattr(repository, "update_engineer", update_engineer)
+    monkeypatch.setattr(lookups, "get_user",
                         lambda user_id: users.get(user_id) and {k: v for k, v in users[user_id].items()
                                                                 if k != "password_hash"})
-    monkeypatch.setattr(repository, "update_engineer", update_engineer)
     monkeypatch.setattr(lookups, "get_team", TEAMS.get)
     monkeypatch.setattr(lookups, "list_engineers", list_engineers)
     monkeypatch.setattr(lookups, "open_incidents", lambda user_id: state["open"].get(user_id, 0))

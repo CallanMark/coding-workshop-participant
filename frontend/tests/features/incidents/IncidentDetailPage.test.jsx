@@ -186,6 +186,17 @@ describe('incident detail page', () => {
     expect(await screen.findByText('Incident list')).toBeInTheDocument();
   });
 
+  it('shows why a delete failed in the confirm dialog and stays on the incident', async () => {
+    api.deleteIncident.mockRejectedValue(new ApiError('Incident not found', 404));
+    renderAs(ADMIN);
+    await userEvent.click((await actions()).getByRole('button', { name: 'Delete' }));
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    expect(await within(dialog).findByText('Incident not found')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(screen.queryByText('Incident list')).not.toBeInTheDocument();
+  });
+
   it('hides closed incidents from new notes', async () => {
     api.getIncident.mockResolvedValue({ ...INCIDENT, status: 'closed' });
     renderAs(EVE);

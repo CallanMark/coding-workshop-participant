@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -12,11 +10,13 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
-import { DeleteFacilityDialog, FacilityFormDialog } from './FacilityDialogs';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import Loaded from '../../components/Loaded';
+import FormDialog from '../../components/FormDialog';
 
 /**
  * One facilities table (buildings, floors, seats or categories) with add, edit and delete.
- * The rows come from the parent's useApiList result; after any change the list reloads.
+ * The rows come from the parent's useApi result; after any change the list reloads.
  * @param {{noun: string, list: object, columns: {key: string, label: string, numeric?: boolean}[],
  *   fields: object[], nameOf: function(object): string, toForm: function(object|null): object,
  *   save: function(object, object|null): Promise<any>, remove: function(object): Promise<any>,
@@ -31,50 +31,37 @@ export default function FacilitySection({ noun, list, columns, fields, nameOf, t
     list.retry();
   };
 
-  let body;
-  if (list.status === 'loading') {
-    body = <Stack sx={{ alignItems: 'center', py: 4 }}><CircularProgress aria-label={`Loading ${noun}s`} /></Stack>;
-  } else if (list.status === 'error') {
-    body = (
-      <Alert severity="error" action={<Button color="inherit" size="small" onClick={list.retry}>Retry</Button>}>
-        {list.error}
-      </Alert>
-    );
-  } else if (list.data.length === 0) {
-    body = <Typography color="text.secondary" sx={{ py: 2 }}>{emptyText}</Typography>;
-  } else {
-    body = (
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small" aria-label={`${noun}s`}>
-          <TableHead>
-            <TableRow>
-              {columns.map((c) => <TableCell key={c.key} align={c.numeric ? 'right' : 'left'}>{c.label}</TableCell>)}
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {list.data.map((row) => (
-              <TableRow key={row.id} hover>
-                {columns.map((c) => (
-                  <TableCell key={c.key} align={c.numeric ? 'right' : 'left'} sx={{ textTransform: c.key === 'type' ? 'capitalize' : 'none' }}>
-                    {row[c.key] ?? '—'}
-                  </TableCell>
-                ))}
-                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                  <Button size="small" onClick={() => setDialog({ mode: 'edit', row })} aria-label={`Edit ${nameOf(row)}`}>
-                    Edit
-                  </Button>
-                  <Button size="small" color="error" onClick={() => setDialog({ mode: 'delete', row })} aria-label={`Delete ${nameOf(row)}`}>
-                    Delete
-                  </Button>
+  const table = (rows) => (
+    <TableContainer component={Paper} variant="outlined">
+      <Table size="small" aria-label={`${noun}s`}>
+        <TableHead>
+          <TableRow>
+            {columns.map((c) => <TableCell key={c.key} align={c.numeric ? 'right' : 'left'}>{c.label}</TableCell>)}
+            <TableCell align="right">Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.id} hover>
+              {columns.map((c) => (
+                <TableCell key={c.key} align={c.numeric ? 'right' : 'left'} sx={{ textTransform: c.key === 'type' ? 'capitalize' : 'none' }}>
+                  {row[c.key] ?? '—'}
                 </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    );
-  }
+              ))}
+              <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                <Button size="small" onClick={() => setDialog({ mode: 'edit', row })} aria-label={`Edit ${nameOf(row)}`}>
+                  Edit
+                </Button>
+                <Button size="small" color="error" onClick={() => setDialog({ mode: 'delete', row })} aria-label={`Delete ${nameOf(row)}`}>
+                  Delete
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
 
   return (
     <Stack spacing={2}>
@@ -83,9 +70,11 @@ export default function FacilitySection({ noun, list, columns, fields, nameOf, t
           Add {noun}
         </Button>
       </Stack>
-      {body}
+      <Loaded result={list} label={`${noun}s`}>
+        {(rows) => (rows.length === 0 ? <Typography color="text.secondary" sx={{ py: 2 }}>{emptyText}</Typography> : table(rows))}
+      </Loaded>
       {dialog && dialog.mode !== 'delete' && (
-        <FacilityFormDialog
+        <FormDialog
           title={dialog.row ? `Edit ${nameOf(dialog.row)}` : `Add ${noun}`}
           fields={fields}
           initial={toForm(dialog.row)}
@@ -94,7 +83,14 @@ export default function FacilitySection({ noun, list, columns, fields, nameOf, t
         />
       )}
       {dialog?.mode === 'delete' && (
-        <DeleteFacilityDialog name={nameOf(dialog.row)} onCancel={close} onConfirm={() => remove(dialog.row).then(done)} />
+        <ConfirmDialog
+          title={`Delete ${nameOf(dialog.row)}?`}
+          text="This can't be undone."
+          confirmLabel="Delete"
+          busyLabel="Deleting…"
+          onCancel={close}
+          onConfirm={() => remove(dialog.row).then(done)}
+        />
       )}
     </Stack>
   );

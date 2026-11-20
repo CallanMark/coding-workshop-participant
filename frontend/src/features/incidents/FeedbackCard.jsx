@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import PropTypes from 'prop-types';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
@@ -8,6 +8,10 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { getFeedback, saveFeedback } from '../../api/incidents';
+import useApi from '../../hooks/useApi';
+
+// useApi loads by one key, "<incident id>/<status>".
+const loadFeedback = (key) => getFeedback(key.split('/')[0]);
 
 /**
  * The reporter's private feedback on the engineer who did the work.
@@ -17,24 +21,15 @@ import { getFeedback, saveFeedback } from '../../api/incidents';
  * @param {{incident: object, user: object}} props
  */
 export default function FeedbackCard({ incident, user }) {
-  const [state, setState] = useState({ loaded: false, hidden: false, feedback: null });
+  // Reload when the status changes (resolving it opens feedback). An error (403) hides the card.
+  const loaded = useApi(loadFeedback, `${incident.id}/${incident.status}`);
   const [draft, setDraft] = useState(null); // { rating, comment } while the reporter edits
   const [message, setMessage] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    let ignore = false;
-    getFeedback(incident.id)
-      .then((feedback) => { if (!ignore) setState({ loaded: true, hidden: false, feedback }); })
-      .catch(() => { if (!ignore) setState({ loaded: true, hidden: true, feedback: null }); });
-    return () => {
-      ignore = true;
-    };
-  }, [incident.id, incident.status]);
-
-  const { loaded, hidden, feedback } = state;
+  const feedback = loaded.status === 'ready' ? loaded.data : null;
   const done = ['resolved', 'closed'].includes(incident.status);
-  if (!loaded || hidden || (!done && !feedback)) return null;
+  if (loaded.status !== 'ready' || (!done && !feedback)) return null;
 
   const isReporter = incident.reporter_id === user.id;
   const canGive = isReporter && done && incident.assignee_id != null
@@ -46,7 +41,7 @@ export default function FeedbackCard({ incident, user }) {
     setMessage(null);
     try {
       const saved = await saveFeedback(incident.id, { rating: draft.rating, comment: draft.comment.trim() });
-      setState({ loaded: true, hidden: false, feedback: saved });
+      loaded.setData(saved);
       setDraft(null);
       setMessage({ severity: 'success', text: 'Thanks, your feedback was saved.' });
     } catch (error) {

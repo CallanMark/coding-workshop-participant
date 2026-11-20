@@ -1,13 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
 import { ApiError } from '../../../src/api/client';
-import { findDuplicates, getIncident, getIncidentSummary } from '../../../src/api/incidents';
+import { findDuplicates } from '../../../src/api/incidents';
 import DuplicateSuggestions from '../../../src/features/incidents/DuplicateSuggestions';
-import IncidentSummaryPage from '../../../src/features/incidents/IncidentSummaryPage';
 import { pick } from '../../facilitiesMock';
 
 // vi.mock is hoisted above imports, so the factory loads the helper itself.
@@ -15,28 +13,18 @@ vi.mock('../../../src/api/facilities', async () => (await import('../../faciliti
 
 vi.mock('../../../src/api/incidents', async (importOriginal) => ({
   ...(await importOriginal()),
-  findDuplicates: vi.fn(), getIncident: vi.fn(), getIncidentSummary: vi.fn(),
+  findDuplicates: vi.fn(),
 }));
 
+// All the server sends about a possible duplicate: the reporter may not be allowed to see it.
 const MATCH = {
-  id: 1, title: 'Air con not working', status: 'open', priority: 'medium', created_at: '2026-11-18T09:00:00Z',
-  category_name: 'HVAC', building_name: 'HQ Tower', floor_name: 'Ground',
+  title: 'Air con not working', category_name: 'HVAC', building_name: 'HQ Tower', floor_name: 'Ground', seat_code: 'G-01',
 };
 
 function renderPanel(props) {
   return render(
     <MemoryRouter>
       <DuplicateSuggestions categoryId="" buildingId="" floorId="" {...props} />
-    </MemoryRouter>,
-  );
-}
-
-function renderSummary(path) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/incidents/:id/summary" element={<IncidentSummaryPage />} />
-      </Routes>
     </MemoryRouter>,
   );
 }
@@ -54,12 +42,18 @@ describe('possible duplicates on the report form', () => {
     expect(findDuplicates).not.toHaveBeenCalled();
   });
 
-  it('lists matches as links to their summary, keeping the place in the link', async () => {
+  it('shows each match as its title, category and place, with no link to open it', async () => {
     renderPanel({ categoryId: '1', buildingId: '1', floorId: '1' });
-    const link = await screen.findByRole('link', { name: /#1 Air con not working/ });
+    expect(await screen.findByText('Air con not working')).toBeInTheDocument();
+    expect(screen.getByText('HVAC · HQ Tower › Ground › G-01')).toBeInTheDocument();
     expect(findDuplicates).toHaveBeenCalledWith({ category_id: '1', building_id: '1', floor_id: '1' });
-    expect(link).toHaveAttribute('href', '/incidents/1/summary?category_id=1&building_id=1&floor_id=1');
-    expect(link).toHaveAttribute('target', '_blank'); // keep the draft report open
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('leaves out the floor and seat when the match has none', async () => {
+    findDuplicates.mockResolvedValue([{ ...MATCH, floor_name: null, seat_code: null }]);
+    renderPanel({ categoryId: '1', buildingId: '1' });
+    expect(await screen.findByText('HVAC · HQ Tower')).toBeInTheDocument();
   });
 
   it('checks once after typing stops, not on every keystroke', async () => {
@@ -86,44 +80,5 @@ describe('possible duplicates on the report form', () => {
     await pick(/Floor/, 'Ground');
     expect(await screen.findByText('Possible duplicates')).toBeInTheDocument();
     expect(findDuplicates).toHaveBeenLastCalledWith({ category_id: '1', building_id: '1', floor_id: '1' });
-  });
-});
-
-describe('possible duplicate summary page', () => {
-  beforeEach(() => {
-    getIncidentSummary.mockReset().mockResolvedValue(MATCH);
-    getIncident.mockReset().mockRejectedValue(new ApiError('Incident not found', 404));
-  });
-
-  it('shows the limited summary for the place in the URL', async () => {
-    renderSummary('/incidents/1/summary?category_id=1&building_id=1&floor_id=1');
-    expect(await screen.findByRole('heading', { name: 'Air con not working' })).toBeInTheDocument();
-    expect(screen.getByText(/HQ Tower, Ground/)).toBeInTheDocument();
-    expect(getIncidentSummary).toHaveBeenCalledWith('1', { category_id: '1', building_id: '1', floor_id: '1' });
-  });
-
-  it('offers the full incident only when the server lets the user see it', async () => {
-    renderSummary('/incidents/1/summary?category_id=1&building_id=1');
-    await screen.findByRole('heading', { name: 'Air con not working' });
-    expect(screen.queryByRole('link', { name: 'Open full incident' })).not.toBeInTheDocument();
-  });
-
-  it('links to the full incident for someone who may see it', async () => {
-    getIncident.mockResolvedValue({ ...MATCH, description: 'Warm' });
-    renderSummary('/incidents/1/summary?category_id=1&building_id=1');
-    expect(await screen.findByRole('link', { name: 'Open full incident' })).toHaveAttribute('href', '/incidents/1');
-  });
-
-  it('says so when the incident no longer matches', async () => {
-    getIncidentSummary.mockRejectedValue(new ApiError('Incident not found', 404));
-    renderSummary('/incidents/1/summary?category_id=2&building_id=1');
-    expect(await screen.findByText(/no longer open at that place/)).toBeInTheDocument();
-  });
-
-  it('offers a retry on other errors', async () => {
-    getIncidentSummary.mockRejectedValueOnce(new ApiError('Could not reach the server', 0));
-    renderSummary('/incidents/1/summary?category_id=1&building_id=1');
-    await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
-    expect(await screen.findByRole('heading', { name: 'Air con not working' })).toBeInTheDocument();
   });
 });

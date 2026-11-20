@@ -56,3 +56,8 @@ class NotImplementedYet(ApiError):
 
     status = 501
     default_message = "Not implemented yet"
+
+
+def counted(count: int, noun: str) -> str:
+    """For messages: "1 incident", "3 incidents" (noun is the singular; plural adds an s)."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"

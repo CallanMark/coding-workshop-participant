@@ -2,12 +2,11 @@ import { useState } from 'react';
 import PropTypes from 'prop-types';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { PriorityChip, StatusChip } from '../../components/IncidentChips';
+import { EscalatedChip, PriorityChip, StatusChip } from '../../components/IncidentChips';
 import { describeEvent, eventColor, formatWhen } from './eventText';
 
 /** "→" between the old and new value of a change. */
@@ -32,7 +31,7 @@ function EventContent({ event }) {
       break;
     case 'escalated':
       body = event.to_value === 'true'
-        ? <>{who} escalated it <Chip size="small" color="error" label="Escalated" /></>
+        ? <>{who} escalated it <EscalatedChip /></>
         : <>{who} cleared the escalation</>;
       break;
     default:

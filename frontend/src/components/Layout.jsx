@@ -4,8 +4,9 @@ import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AREA_ROLES, hasRole, useAuth } from '../context/auth';
+import ErrorBoundary from './ErrorBoundary';
 
 // `to` may depend on the user (e.g. their own dashboard).
 const NAV_LINKS = [
@@ -48,6 +49,7 @@ function UserMenu() {
  * App shell: top bar with navigation (links limited by role) and the signed-in user, then the current page.
  */
 export default function Layout() {
+  const { pathname } = useLocation();
   const { user } = useAuth();
   const links = NAV_LINKS
     .filter(({ roles }) => !roles || hasRole(user, ...roles))
@@ -77,7 +79,9 @@ export default function Layout() {
         </Toolbar>
       </AppBar>
       <Container component="main" maxWidth="xl" sx={{ py: 3 }}>
-        <Outlet />
+        <ErrorBoundary resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </Container>
     </>
   );

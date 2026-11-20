@@ -6,9 +6,10 @@ Raises common.errors.ApiError subclasses; never builds HTTP responses or SQL.
 from psycopg import errors as pg_errors
 
 import repository
+from common import validate
 from common.db import transaction
 from common.domain import CATEGORY_TYPES
-from common.errors import BadRequest, Conflict, NotFound
+from common.errors import BadRequest, Conflict, NotFound, counted
 from common.http import Request
 
 MAX_NAME = 100
@@ -131,12 +132,9 @@ def list_teams(req: Request) -> list[dict]:
 
 def _required_text(data: dict, field: str) -> str:
     """A trimmed, non-blank string field of at most MAX_NAME characters (400 otherwise)."""
-    value = data.get(field)
-    value = value.strip() if isinstance(value, str) else ""
-    if not value:
-        raise BadRequest(details={field: f"{field.capitalize()} is required"})
-    if len(value) > MAX_NAME:
-        raise BadRequest(details={field: f"{field.capitalize()} must be at most {MAX_NAME} characters"})
+    value = validate.text(data.get(field))
+    if error := validate.length_error(value, field.capitalize(), MAX_NAME):
+        raise BadRequest(details={field: error})
     return value
 
 
@@ -151,7 +149,7 @@ def _category_fields(data: dict) -> dict:
     if data.get("type") not in CATEGORY_TYPES:
         details["type"] = f"Type must be one of {', '.join(CATEGORY_TYPES)}"
     team_id = data.get("team_id")
-    if not (isinstance(team_id, int) and not isinstance(team_id, bool) and team_id > 0):
+    if not validate.is_id(team_id):
         details["team_id"] = "Choose the team that handles this category"
     if details:
         raise BadRequest(details=details)
@@ -188,10 +186,10 @@ def _delete(table: str, row_id: int) -> None:
         in_use = {label: count for label, count in repository.usage(table, row_id).items() if count}
         if in_use.get("incidents"):
             count = in_use["incidents"]
-            raise Conflict(f"Used by {count} incident{'s' if count != 1 else ''}, so it can't be deleted")
+            raise Conflict(f"Used by {counted(count, 'incident')}, so it can't be deleted")
         if in_use:  # floors or seats under it
             label, count = next(iter(in_use.items()))
-            raise Conflict(f"Delete its {count} {label if count != 1 else label[:-1]} first")
+            raise Conflict(f"Delete its {counted(count, label[:-1])} first")  # label is plural: "floors"
         try:
             repository.delete(table, row_id)
         except pg_errors.ForeignKeyViolation as exc:  # something was added since the check

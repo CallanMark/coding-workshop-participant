@@ -11,7 +11,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { getLocationHotspots } from '../../api/analytics';
 import Loaded from '../../components/Loaded';
-import useApiList from '../../hooks/useApiList';
+import useApi from '../../hooks/useApi';
 import { Section } from './DashboardParts';
 
 const LEVELS = [
@@ -60,7 +60,7 @@ Ranking.propTypes = {
  * @param {{days: string}} props
  */
 export default function LocationHotspots({ days }) {
-  const hotspots = useApiList(getLocationHotspots, days);
+  const hotspots = useApi(getLocationHotspots, days);
   return (
     <>
       <Typography variant="h6" component="h2" sx={{ gridColumn: '1 / -1', mt: 2 }}>

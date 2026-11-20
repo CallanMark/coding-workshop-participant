@@ -1,13 +1,10 @@
-import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useMediaQuery } from 'react-responsive';
-import { Link as RouterLink, useLocation, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useLocation } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import CircularProgress from '@mui/material/CircularProgress';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -23,6 +20,9 @@ import { hasRole, useAuth } from '../../context/auth';
 import IncidentFilters from './IncidentFilters';
 import { FILTER_NAMES, hasFilters, readFilters, toApiFilters } from './incidentFilters';
 import { PriorityChip, StatusChip } from '../../components/IncidentChips';
+import Loaded from '../../components/Loaded';
+import useApi from '../../hooks/useApi';
+import useQueryParams from '../../hooks/useQueryParams';
 
 /**
  * Join building / floor / seat into one readable location string.
@@ -152,86 +152,46 @@ const LIST_TITLES = {
  * Incidents list page: search and filters (kept in the URL), and loading, error (with retry), empty and data states.
  * The server decides which incidents the signed-in user may see; the title says which. Filters only narrow that.
  */
+// useApi loads by one key: the API query string, turned back into filters here.
+const loadIncidents = (query) => listIncidents(Object.fromEntries(new URLSearchParams(query)));
+
 export default function IncidentListPage() {
   const { user } = useAuth();
   const isPhone = useMediaQuery({ maxWidth: 899 });
   const location = useLocation();
   const createdTitle = location.state?.createdTitle;
   const deletedTitle = location.state?.deletedTitle;
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, updateParams] = useQueryParams();
   const filters = readFilters(searchParams);
   const filtered = hasFilters(filters);
   // One string that changes exactly when the API request would.
   const apiQuery = new URLSearchParams(toApiFilters(filters, user)).toString();
-  const [reloadKey, setReloadKey] = useState(0);
-  const [state, setState] = useState({ status: 'loading', incidents: [], error: null });
+  const incidents = useApi(loadIncidents, apiQuery);
 
-  useEffect(() => {
-    let ignore = false;
-    listIncidents(Object.fromEntries(new URLSearchParams(apiQuery)))
-      .then((incidents) => {
-        if (!ignore) setState({ status: 'success', incidents, error: null });
-      })
-      .catch((error) => {
-        if (!ignore) setState({ status: 'error', incidents: [], error: error.message });
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [apiQuery, reloadKey]);
+  const changeFilter = (name, value) => updateParams({ [name]: value });
+  const clearFilters = () => updateParams(Object.fromEntries(FILTER_NAMES.map((name) => [name, null])));
 
-  const changeFilter = (name, value) => {
-    const next = new URLSearchParams(searchParams);
-    if (value) next.set(name, value);
-    else next.delete(name);
-    setSearchParams(next, { replace: true });
+  const content = (rows) => {
+    if (rows.length === 0 && filtered) {
+      return (
+        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
+          <Typography gutterBottom>No incidents match these filters.</Typography>
+          <Button onClick={clearFilters}>Clear filters</Button>
+        </Paper>
+      );
+    }
+    if (rows.length === 0) {
+      return (
+        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
+          <Typography gutterBottom>No incidents yet.</Typography>
+          <Button variant="contained" component={RouterLink} to="/incidents/new">
+            Report the first one
+          </Button>
+        </Paper>
+      );
+    }
+    return isPhone ? <IncidentCards incidents={rows} /> : <IncidentTable incidents={rows} />;
   };
-
-  const clearFilters = () => {
-    const next = new URLSearchParams(searchParams);
-    FILTER_NAMES.forEach((name) => next.delete(name));
-    setSearchParams(next, { replace: true });
-  };
-
-  const retry = () => {
-    setState((prev) => ({ ...prev, status: 'loading' }));
-    setReloadKey((key) => key + 1);
-  };
-
-  let content;
-  if (state.status === 'loading') {
-    content = (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress aria-label="Loading incidents" />
-      </Box>
-    );
-  } else if (state.status === 'error') {
-    content = (
-      <Alert severity="error" action={<Button color="inherit" size="small" onClick={retry}>Retry</Button>}>
-        {state.error}
-      </Alert>
-    );
-  } else if (state.incidents.length === 0 && filtered) {
-    content = (
-      <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
-        <Typography gutterBottom>No incidents match these filters.</Typography>
-        <Button onClick={clearFilters}>Clear filters</Button>
-      </Paper>
-    );
-  } else if (state.incidents.length === 0) {
-    content = (
-      <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
-        <Typography gutterBottom>No incidents yet.</Typography>
-        <Button variant="contained" component={RouterLink} to="/incidents/new">
-          Report the first one
-        </Button>
-      </Paper>
-    );
-  } else if (isPhone) {
-    content = <IncidentCards incidents={state.incidents} />;
-  } else {
-    content = <IncidentTable incidents={state.incidents} />;
-  }
 
   return (
     <>
@@ -257,13 +217,13 @@ export default function IncidentListPage() {
         onChange={changeFilter}
         onClear={clearFilters}
       />
-      {state.status === 'success' && state.incidents.length > 0 && (
+      {incidents.status === 'ready' && incidents.data.length > 0 && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} role="status">
-          {state.incidents.length} {state.incidents.length === 1 ? 'incident' : 'incidents'}
+          {incidents.data.length} {incidents.data.length === 1 ? 'incident' : 'incidents'}
           {filtered ? ' match' : ''}
         </Typography>
       )}
-      {content}
+      <Loaded result={incidents} label="incidents">{content}</Loaded>
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import PropTypes from 'prop-types';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -8,25 +8,27 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
-import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { changeIncidentStatus, listIncidents } from '../../api/incidents';
 import { NEXT_STATUSES, REASON_REQUIRED, STATUSES } from '../../constants';
+import Loaded from '../../components/Loaded';
 import { useAuth } from '../../context/auth';
+import useApi from '../../hooks/useApi';
 import BoardCard, { BoardCardContent } from './BoardCard';
 import BoardColumn from './BoardColumn';
 import StatusReasonDialog from './StatusReasonDialog';
+
+const loadMine = () => listIncidents({ mine: true });
 
 /**
  * Kanban board of the user's incidents; drag a card to another column to change its status.
  * @param {{user: {id: number, name: string}}} props
  */
 function IncidentBoard({ user }) {
-  const [reloadKey, setReloadKey] = useState(0);
-  const [state, setState] = useState({ status: 'loading', incidents: [], error: null });
+  const mine = useApi(loadMine, user.id);
   const [dragged, setDragged] = useState(null); // incident being dragged
   const [pendingMove, setPendingMove] = useState(null); // { incident, to } waiting for a reason
   const [toast, setToast] = useState(null); // { severity, message }
@@ -37,30 +39,8 @@ function IncidentBoard({ user }) {
     useSensor(KeyboardSensor),
   );
 
-  useEffect(() => {
-    let ignore = false;
-    listIncidents({ mine: true })
-      .then((incidents) => {
-        if (!ignore) setState({ status: 'success', incidents, error: null });
-      })
-      .catch((error) => {
-        if (!ignore) setState({ status: 'error', incidents: [], error: error.message });
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [user.id, reloadKey]);
-
-  const retry = () => {
-    setState((prev) => ({ ...prev, status: 'loading' }));
-    setReloadKey((key) => key + 1);
-  };
-
   const replaceIncident = (incident) => {
-    setState((prev) => ({
-      ...prev,
-      incidents: prev.incidents.map((i) => (i.id === incident.id ? incident : i)),
-    }));
+    mine.setData((incidents) => incidents.map((i) => (i.id === incident.id ? incident : i)));
   };
 
   // Move the card straight away, then confirm with the server (or put it back on error).
@@ -77,7 +57,7 @@ function IncidentBoard({ user }) {
   };
 
   const handleDragStart = ({ active }) => {
-    setDragged(state.incidents.find((i) => i.id === active.id) || null);
+    setDragged(mine.data.find((i) => i.id === active.id) || null);
   };
 
   const handleDragEnd = ({ over }) => {
@@ -98,21 +78,9 @@ function IncidentBoard({ user }) {
     }
   };
 
-  if (state.status === 'loading') {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress aria-label="Loading incidents" />
-      </Box>
-    );
-  }
-  if (state.status === 'error') {
-    return (
-      <Alert severity="error" action={<Button color="inherit" size="small" onClick={retry}>Retry</Button>}>
-        {state.error}
-      </Alert>
-    );
-  }
-  if (state.incidents.length === 0) {
+  // Loading or error: Loaded shows the spinner or the error with Retry.
+  if (mine.status !== 'ready') return <Loaded result={mine} label="incidents">{() => null}</Loaded>;
+  if (mine.data.length === 0) {
     return (
       <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
         <Typography gutterBottom>
@@ -133,7 +101,7 @@ function IncidentBoard({ user }) {
       >
         <Box sx={{ display: 'flex', gap: 1.5, overflowX: 'auto', pb: 1, alignItems: 'flex-start' }}>
           {Object.keys(STATUSES).map((status) => {
-            const incidents = state.incidents.filter((i) => i.status === status);
+            const incidents = mine.data.filter((i) => i.status === status);
             return (
               <BoardColumn
                 key={status}

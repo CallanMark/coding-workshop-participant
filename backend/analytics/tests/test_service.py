@@ -43,11 +43,11 @@ def calls(monkeypatch):
     """Fake every repository read; returns the list of (function, args) calls made."""
     made = []
 
-    def fake(name, result):
-        def record(*args):
+    def fake(name, result, module=repository):
+        def record(*args, **kwargs):
             made.append((name, args))
             return result
-        monkeypatch.setattr(repository, name, record)
+        monkeypatch.setattr(module, name, record)
 
     monkeypatch.setattr(lookups, "get_team",
                         lambda team_id: {1: {"id": 1, "name": "Facilities"},
@@ -57,8 +57,8 @@ def calls(monkeypatch):
     fake("oldest_open", [{"id": 3, "title": "Wi-Fi drops"}])
     fake("top_categories", [{"id": 5, "name": "Network", "type": "technology", "incidents": 2}])
     fake("speed", {"reported": 4, "resolved": 2, "acknowledge": 3599.6, "assign": 1800.0, "resolve": None})
-    fake("feedback_summary", FEEDBACK)
-    fake("recent_feedback", [{"incident_id": 5, "rating": 3, "comment": "Slow to hear back"}])
+    fake("feedback_summary", FEEDBACK, module=lookups)
+    fake("engineer_feedback", [{"incident_id": 5, "rating": 3, "comment": "Slow to hear back"}], module=lookups)
     fake("hotspots", [{"id": 1, "incidents": 3, "recurring": 1}])
     return made
 
@@ -146,7 +146,7 @@ def test_engineers_see_their_own_dashboard_without_their_ratings(calls):
     assert body["engineer"] == {"id": 5, "name": "Tina Tech", "team_id": 2, "team_name": "Workplace Technology",
                                 "is_available": True}
     assert "feedback" not in body
-    assert not any(name in ("feedback_summary", "recent_feedback") for name, _ in calls)
+    assert not any(name in ("feedback_summary", "engineer_feedback") for name, _ in calls)
     assert ("open_counts", ({"team_id": None, "assignee_id": 5},)) in calls
 
 

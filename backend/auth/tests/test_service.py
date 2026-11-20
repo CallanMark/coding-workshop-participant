@@ -7,6 +7,7 @@ from psycopg import errors as pg_errors
 
 import function
 import repository
+from common import lookups
 from common.auth import decode_token, hash_password, issue_token
 
 PASSWORD = "Password123!"
@@ -36,7 +37,7 @@ def db(monkeypatch):
 
     monkeypatch.setattr(repository, "insert_user", insert_user)
     monkeypatch.setattr(repository, "get_credentials", get_credentials)
-    monkeypatch.setattr(repository, "get_user", get_user)
+    monkeypatch.setattr(lookups, "get_user", get_user)
     return users
 
 

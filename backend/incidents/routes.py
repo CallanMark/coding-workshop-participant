@@ -12,10 +12,8 @@ from common.http import Route
 ROUTES = [
     # Any signed-in user; the list is scoped to the user's role (see service.visible_to). ?mine=true narrows it.
     Route("GET", "/", service.list_incidents),  # filters: see service.list_incidents
-    # Any signed-in user: active incidents with the same ?category_id=&building_id=&floor_id= (summaries only).
+    # Any signed-in user: active incidents with the same ?category_id=&building_id=&floor_id= (title and place only).
     Route("GET", "/duplicates", service.find_duplicates),
-    # Any signed-in user, only for a possible duplicate of that category and place (404 otherwise).
-    Route("GET", "/{id}/summary", service.get_duplicate_summary),
     # Anyone who can see the incident (404 otherwise).
     Route("GET", "/{id}", service.get_incident),
     # Any signed-in user; the reporter is the signed-in user.

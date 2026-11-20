@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import PropTypes from 'prop-types';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
@@ -15,12 +13,15 @@ import {
   addNote, assignIncident, changeIncidentStatus, deleteIncident, deleteNote, editNote, escalateIncident,
   getIncident, listEvents, listNotes, updateIncident,
 } from '../../api/incidents';
-import { PriorityChip, StatusChip } from '../../components/IncidentChips';
+import { EscalatedChip, PriorityChip, StatusChip } from '../../components/IncidentChips';
 import { REASON_REQUIRED, STATUSES } from '../../constants';
 import { useAuth } from '../../context/auth';
 import FeedbackCard from './FeedbackCard';
 import { allowedActions } from './incidentAccess';
-import { AssignDialog, ConfirmDialog, EditIncidentDialog } from './IncidentDialogs';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import Loaded from '../../components/Loaded';
+import useApi from '../../hooks/useApi';
+import { AssignDialog, EditIncidentDialog } from './IncidentDialogs';
 import IncidentTimeline from './IncidentTimeline';
 import StatusReasonDialog from './StatusReasonDialog';
 import WorkflowStepper from './WorkflowStepper';
@@ -53,6 +54,10 @@ Fact.propTypes = {
   children: PropTypes.node,
 };
 
+// The incident with its notes and history, loaded together.
+const loadDetail = (id) => Promise.all([getIncident(id), listNotes(id), listEvents(id)])
+  .then(([incident, notes, events]) => ({ incident, notes, events }));
+
 /**
  * One incident: workflow, details, the actions the user may take, notes and history in one timeline,
  * and private feedback. Out of scope or missing is "not found" (the server answers 404 for both).
@@ -61,33 +66,14 @@ export default function IncidentDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [reloadKey, setReloadKey] = useState(0);
-  const [state, setState] = useState({ status: 'loading', error: null, incident: null, notes: [], events: [] });
+  const detail = useApi(loadDetail, id);
   const [dialog, setDialog] = useState(null); // { type: 'move' | 'assign' | 'escalate' | 'edit' | 'delete', to? }
   const [dialogError, setDialogError] = useState({});
   const [toast, setToast] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let ignore = false;
-    Promise.all([getIncident(id), listNotes(id), listEvents(id)])
-      .then(([incident, notes, events]) => {
-        if (!ignore) setState({ status: 'success', error: null, incident, notes, events });
-      })
-      .catch((error) => {
-        if (!ignore) setState((prev) => ({ ...prev, status: 'error', error }));
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [id, reloadKey]);
-
-  const refresh = () => setReloadKey((key) => key + 1);
-  const retry = () => {
-    setState((prev) => ({ ...prev, status: 'loading' }));
-    refresh();
-  };
+  const refresh = detail.reload; // after an action: reload quietly, keeping the page on screen
 
   /**
    * Run one action, then reload. On failure keep the dialog open with field errors when the server named
@@ -116,20 +102,23 @@ export default function IncidentDetailPage() {
     }
   };
 
-  if (state.status === 'loading') return <CircularProgress aria-label="Loading incident" />;
-  if (state.status === 'error') {
-    return state.error.status === 404 ? (
-      <Alert severity="info" action={<Button color="inherit" component={RouterLink} to="/incidents">All incidents</Button>}>
-        Incident not found. It may have been deleted, or it is not one you can see.
-      </Alert>
-    ) : (
-      <Alert severity="error" action={<Button color="inherit" size="small" onClick={retry}>Retry</Button>}>
-        {state.error.message}
-      </Alert>
+  if (detail.status !== 'ready') {
+    return (
+      <Loaded
+        result={detail}
+        label="incident"
+        notFound={(
+          <Alert severity="info" action={<Button color="inherit" component={RouterLink} to="/incidents">All incidents</Button>}>
+            Incident not found. It may have been deleted, or it is not one you can see.
+          </Alert>
+        )}
+      >
+        {() => null}
+      </Loaded>
     );
   }
 
-  const { incident, notes, events } = state;
+  const { incident, notes, events } = detail.data;
   const can = allowedActions(user, incident);
   const place = [incident.building_name, incident.floor_name, incident.seat_code].filter(Boolean).join(' › ');
 
@@ -152,7 +141,7 @@ export default function IncidentDetailPage() {
         <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', rowGap: 1 }}>
           <StatusChip status={incident.status} />
           <PriorityChip priority={incident.priority} />
-          {incident.is_escalated && <Chip size="small" color="error" label="Escalated" />}
+          {incident.is_escalated && <EscalatedChip />}
         </Stack>
       </Box>
 
@@ -299,15 +288,11 @@ export default function IncidentDetailPage() {
           title={`Delete #${incident.id}?`}
           text="This removes the incident with its notes and history. It cannot be undone."
           confirmLabel="Delete"
+          busyLabel="Deleting…"
           onCancel={() => setDialog(null)}
           onConfirm={async () => {
-            try {
-              await deleteIncident(incident.id);
-              navigate('/incidents', { state: { deletedTitle: incident.title } });
-            } catch (error) {
-              setDialog(null);
-              setToast({ severity: 'error', message: error.message });
-            }
+            await deleteIncident(incident.id); // a failure shows in the dialog
+            navigate('/incidents', { state: { deletedTitle: incident.title } });
           }}
         />
       )}

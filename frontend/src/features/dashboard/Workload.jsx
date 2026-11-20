@@ -5,7 +5,6 @@
  */
 import PropTypes from 'prop-types';
 import { Link as RouterLink } from 'react-router-dom';
-import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -16,7 +15,8 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { listEngineers } from '../../api/incidents';
 import Loaded from '../../components/Loaded';
-import useApiList from '../../hooks/useApiList';
+import { AvailabilityChip } from '../../components/PersonChips';
+import useApi from '../../hooks/useApi';
 import { OTHER, SERIES, share } from './chartColors';
 import { Section } from './DashboardParts';
 import DonutChart, { Swatch } from './DonutChart';
@@ -46,12 +46,7 @@ function WorkloadTable({ engineers, total }) {
               </Stack>
             </TableCell>
             <TableCell>
-              <Chip
-                size="small"
-                variant="outlined"
-                color={engineer.is_available ? 'success' : 'default'}
-                label={engineer.is_available ? 'Available' : 'Unavailable'}
-              />
+              <AvailabilityChip available={engineer.is_available} />
             </TableCell>
             <TableCell align="right">{engineer.open_incidents}</TableCell>
             <TableCell align="right">{share(engineer.open_incidents, total)}</TableCell>
@@ -69,7 +64,7 @@ WorkloadTable.propTypes = {
 
 /** @param {{teamId: string}} props */
 export default function Workload({ teamId }) {
-  const engineers = useApiList(listEngineers, teamId);
+  const engineers = useApi(listEngineers, teamId);
   return (
     <Section title="Team workload" subtitle="Active engineers and their share of the team's open incidents" wide>
       <Loaded result={engineers} label="team workload">

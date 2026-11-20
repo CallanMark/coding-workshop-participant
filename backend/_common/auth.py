@@ -94,3 +94,8 @@ def require_role(user: dict, *roles: str) -> None:
     """Raise Forbidden unless the user has one of `roles`."""
     if user["role"] not in roles:
         raise Forbidden()
+
+
+def manages(user: dict, team_id: int | None) -> bool:
+    """True if the user is the manager of that team (managers act as admins within their own team)."""
+    return user["role"] == "manager" and team_id is not None and user["team_id"] == team_id

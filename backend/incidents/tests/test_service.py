@@ -65,11 +65,8 @@ def repo(monkeypatch):
 
     def find_duplicates(category_id, building_id, floor_id, limit):
         state["duplicate_calls"].append((category_id, building_id, floor_id, limit))
-        return [{"id": 1, "title": "Air con not working"}]
-
-    def get_duplicate(incident_id, category_id, building_id, floor_id):
-        match = (incident_id, category_id, building_id, floor_id) == (1, 1, 1, 1)
-        return {"id": 1, "title": "Air con not working"} if match else None
+        return [{"title": "Air con not working", "category_name": "HVAC", "building_name": "HQ Tower",
+                 "floor_name": "Ground", "seat_code": None}]
 
     def insert_incident(fields):
         state["inserted"] = fields
@@ -85,7 +82,6 @@ def repo(monkeypatch):
     monkeypatch.setattr(repository, "update_incident", update_incident)
     monkeypatch.setattr(repository, "delete_incident", delete_incident)
     monkeypatch.setattr(repository, "find_duplicates", find_duplicates)
-    monkeypatch.setattr(repository, "get_duplicate", get_duplicate)
     monkeypatch.setattr(repository, "get_category_team", {1: 1, 4: 2}.get)
     state["feedback"] = {}
     users = {u["id"]: {**u, "name": f"User {u['id']}", "team_name": None, "is_active": True, "is_available": True}
@@ -100,13 +96,18 @@ def repo(monkeypatch):
         state["feedback"][incident_id] = {"incident_id": incident_id, "reporter_id": reporter_id,
                                           "engineer_id": engineer_id, "rating": rating, "comment": comment}
 
-    def list_engineer_feedback(engineer_id):
-        return [row for row in state["feedback"].values() if row["engineer_id"] == engineer_id]
+    def engineer_feedback(engineer_id, limit=None):
+        return [row for row in state["feedback"].values() if row["engineer_id"] == engineer_id][:limit]
+
+    def feedback_summary(engineer_id):
+        ratings = [row["rating"] for row in engineer_feedback(engineer_id)]
+        return {"average": round(sum(ratings) / len(ratings), 1) if ratings else None, "ratings": len(ratings)}
 
     monkeypatch.setattr(repository, "get_feedback", get_feedback)
     monkeypatch.setattr(repository, "save_feedback", save_feedback)
     monkeypatch.setattr(lookups, "get_user", users.get)
-    monkeypatch.setattr(repository, "list_engineer_feedback", list_engineer_feedback)
+    monkeypatch.setattr(lookups, "engineer_feedback", engineer_feedback)
+    monkeypatch.setattr(lookups, "feedback_summary", feedback_summary)
     state["notes"] = {}
 
     def get_note(incident_id, note_id):
@@ -154,7 +155,7 @@ def call(method, path, user=None, body=None, query=None):
 
 @pytest.mark.parametrize("method,path", [
     ("GET", "/"), ("GET", "/10"), ("POST", "/"), ("PUT", "/10"), ("DELETE", "/10"), ("POST", "/10/status"),
-    ("POST", "/10/escalate"), ("POST", "/10/assign"), ("GET", "/duplicates"), ("GET", "/10/summary"),
+    ("POST", "/10/escalate"), ("POST", "/10/assign"), ("GET", "/duplicates"),
     ("PUT", "/10/feedback"), ("GET", "/10/feedback"), ("GET", "/engineers/4/feedback"),
     ("GET", "/10/notes"), ("POST", "/10/notes"), ("PUT", "/10/notes/1"), ("DELETE", "/10/notes/1"),
     ("GET", "/10/events"), ("GET", "/engineers"),
@@ -288,15 +289,15 @@ def test_every_allowed_transition(repo, move, who):
     assert event["actor_id"] == actor["id"]  # from the token, not the body
 
 
-# One user who can see the incident but is not allowed to make the move.
-NOT_ALLOWED = [
-    (("open", "in_progress"), EVE), (("in_progress", "blocked"), EVE), (("blocked", "in_progress"), EVE),
-    (("in_progress", "resolved"), FRED_TEAMMATE), (("resolved", "closed"), FRED),
-    (("resolved", "in_progress"), FRED), (("open", "closed"), FRED_TEAMMATE),
+# Users who can see the incident but may not make the move: the reporter never moves status,
+# and an engineer on the team who isn't assigned can't either.
+NOT_ALLOWED = [(move, EVE) for move in service.TRANSITIONS] + [
+    (("in_progress", "resolved"), FRED_TEAMMATE), (("open", "closed"), FRED_TEAMMATE),
 ]
 
 
-@pytest.mark.parametrize("move,user", NOT_ALLOWED, ids=[f"{a}->{b}" for (a, b), _ in NOT_ALLOWED])
+@pytest.mark.parametrize("move,user", NOT_ALLOWED,
+                         ids=[f"{a}->{b} by {u['role']} {u['id']}" for (a, b), u in NOT_ALLOWED])
 def test_visible_but_not_allowed_is_403(repo, move, user):
     repo["incidents"][10] = incident(status=move[0])
     status, _ = call("POST", "/10/status", user, {"status": move[1], "reason": "because"})
@@ -457,7 +458,8 @@ def test_unknown_category_on_edit_is_a_field_error(repo):
 def test_duplicates_for_a_place_and_category(repo):
     status, body = call("GET", "/duplicates", SAM, query={"category_id": "1", "building_id": "1", "floor_id": "1"})
     assert status == 200
-    assert body == [{"id": 1, "title": "Air con not working"}]
+    assert body == [{"title": "Air con not working", "category_name": "HVAC", "building_name": "HQ Tower",
+                     "floor_name": "Ground", "seat_code": None}]
     assert repo["duplicate_calls"] == [(1, 1, 1, service.MAX_DUPLICATES)]
 
 
@@ -472,10 +474,10 @@ def test_duplicates_need_category_and_building(repo):
     assert set(body["error"]["details"]) == {"category_id", "building_id", "floor_id"}
 
 
-def test_summary_only_for_a_matching_duplicate(repo):
-    match = {"category_id": "1", "building_id": "1", "floor_id": "1"}
-    assert call("GET", "/1/summary", SAM, query=match)[0] == 200
-    assert call("GET", "/1/summary", SAM, query={**match, "category_id": "2"})[0] == 404
+def test_there_is_no_way_to_open_a_duplicate_from_the_report_form(repo):
+    """The old /{id}/summary page is gone: a reporter must never get a way into an incident they can't see."""
+    status, _ = call("GET", "/1/summary", SAM, query={"category_id": "1", "building_id": "1", "floor_id": "1"})
+    assert status == 404
 
 
 # --- reporter feedback (private from the engineer) ----------------------------------

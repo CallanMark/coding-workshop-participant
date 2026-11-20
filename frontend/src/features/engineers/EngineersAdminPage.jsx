@@ -5,12 +5,10 @@
  */
 import { useState } from 'react';
 import PropTypes from 'prop-types';
-import { Link as RouterLink, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
-import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
@@ -20,12 +18,14 @@ import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
-import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { createEngineer, listEngineerProfiles, updateEngineer } from '../../api/engineers';
 import { listTeams } from '../../api/facilities';
 import Loaded from '../../components/Loaded';
-import useApiList from '../../hooks/useApiList';
+import TeamSelect from '../../components/TeamSelect';
+import { ActiveChip } from '../../components/PersonChips';
+import useApi from '../../hooks/useApi';
+import useQueryParams from '../../hooks/useQueryParams';
 import { EngineerFormDialog, EngineerStatusDialog } from './EngineerDialogs';
 
 const ALL_TEAMS = '';
@@ -69,12 +69,7 @@ function EngineersTable({ engineers, onEdit, onStatus, onAvailability }) {
               </TableCell>
               <TableCell align="right">{engineer.open_incidents}</TableCell>
               <TableCell>
-                <Chip
-                  size="small"
-                  variant="outlined"
-                  color={engineer.is_active ? 'success' : 'default'}
-                  label={engineer.is_active ? 'Active' : 'Deactivated'}
-                />
+                <ActiveChip active={engineer.is_active} />
               </TableCell>
               <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                 <Button size="small" onClick={() => onEdit(engineer)} aria-label={`Edit ${engineer.name}`}>Edit</Button>
@@ -103,9 +98,9 @@ EngineersTable.propTypes = {
 };
 
 function Engineers({ teams }) {
-  const [params, setParams] = useSearchParams();
+  const [params, update] = useQueryParams();
   const teamId = teams.some((t) => String(t.id) === params.get('team')) ? params.get('team') : ALL_TEAMS;
-  const engineers = useApiList(listEngineerProfiles, teamId);
+  const engineers = useApi(listEngineerProfiles, teamId);
   const [dialog, setDialog] = useState(null); // { mode: 'add' | 'edit' | 'status', engineer }
   const [error, setError] = useState('');
 
@@ -128,18 +123,7 @@ function Engineers({ teams }) {
     <Stack spacing={2}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
         <Typography variant="h5" component="h1" sx={{ flexGrow: 1 }}>Engineers</Typography>
-        <TextField
-          select
-          size="small"
-          label="Team"
-          value={teamId}
-          onChange={(event) => setParams(event.target.value ? { team: event.target.value } : {}, { replace: true })}
-          sx={{ minWidth: 220 }}
-          slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-        >
-          <MenuItem value={ALL_TEAMS}>All teams</MenuItem>
-          {teams.map((t) => <MenuItem key={t.id} value={String(t.id)}>{t.name}</MenuItem>)}
-        </TextField>
+        <TeamSelect teams={teams} value={teamId} onChange={(team) => update({ team })} allLabel="All teams" />
         <Button variant="contained" onClick={() => setDialog({ mode: 'add' })} disabled={engineers.status !== 'ready'}>
           Add engineer
         </Button>
@@ -179,7 +163,7 @@ function Engineers({ teams }) {
 Engineers.propTypes = { teams: PropTypes.arrayOf(PropTypes.object).isRequired };
 
 export default function EngineersAdminPage() {
-  const teams = useApiList(listTeams, 'all');
+  const teams = useApi(listTeams, 'all');
   return (
     <Loaded result={teams} label="teams">
       {(rows) => <Engineers teams={rows} />}

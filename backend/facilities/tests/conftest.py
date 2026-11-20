@@ -1,17 +1,8 @@
-"""Shared test setup for the facilities service: a fixed JWT secret and no database on import."""
+"""Unit test setup for the facilities service: the shared fixtures in backend/unit_support.py."""
 
-import pytest
+import sys
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # backend/, for unit_support
 
-@pytest.fixture(autouse=True)
-def jwt_secret(monkeypatch):
-    """Every test signs and verifies tokens with the same known secret."""
-    monkeypatch.setenv("JWT_SECRET", "test-secret")
-
-
-@pytest.fixture(autouse=True)
-def no_schema(monkeypatch):
-    """handle() normally creates the schema on first call; unit tests never touch the database."""
-    import common.http
-
-    monkeypatch.setattr(common.http, "ensure_schema", lambda: None)
+from unit_support import jwt_secret, no_database, no_schema  # noqa: E402, F401  (pytest finds them by name)

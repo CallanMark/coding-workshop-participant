@@ -5,7 +5,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import { listBuildings, listCategories, listFloors, listSeats } from '../../api/facilities';
-import useApiList from '../../hooks/useApiList';
+import useApi from '../../hooks/useApi';
 
 /**
  * A select that loads its options: "Loading…" while fetching, the error with Retry if it fails.
@@ -63,7 +63,7 @@ LoadingSelect.propTypes = {
 export function CategorySelect({
   value, onChange, required = false, error = '', emptyLabel = null, size = 'medium', showTeam = true,
 }) {
-  const categories = useApiList(listCategories, 'all');
+  const categories = useApi(listCategories, 'all');
   const chosen = categories.data.find((category) => String(category.id) === value);
   return (
     <LoadingSelect
@@ -100,7 +100,7 @@ CategorySelect.propTypes = {
  * @param {{value: string, onChange: function(string): void, emptyLabel?: string|null, size?: string}} props
  */
 export function BuildingSelect({ value, onChange, emptyLabel = null, size = 'medium', required = false, error = '' }) {
-  const buildings = useApiList(listBuildings, 'all');
+  const buildings = useApi(listBuildings, 'all');
   return (
     <LoadingSelect
       label="Building"
@@ -134,7 +134,7 @@ const NOT_CHOSEN = { status: 'ready', data: [], error: '', retry: () => {} };
  *   size?: string, required?: boolean, error?: string}} props
  */
 export function FloorSelect({ buildingId, value, onChange, emptyLabel = null, size = 'medium', required = false, error = '' }) {
-  const floors = useApiList(listFloors, buildingId || null);
+  const floors = useApi(listFloors, buildingId || null);
   return (
     <LoadingSelect
       label="Floor"
@@ -169,7 +169,7 @@ FloorSelect.propTypes = {
  *   errors?: object}} props
  */
 export function LocationFields({ value, onChange, errors = {} }) {
-  const seats = useApiList(listSeats, value.floor_id || null);
+  const seats = useApi(listSeats, value.floor_id || null);
   return (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
       <BuildingSelect

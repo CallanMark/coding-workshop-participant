@@ -1,5 +1,4 @@
 import PropTypes from 'prop-types';
-import { useSearchParams } from 'react-router-dom';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
@@ -11,7 +10,8 @@ import {
 } from '../../api/facilities';
 import { BuildingSelect, FloorSelect } from './FacilityFields';
 import FacilitySection from './FacilitySection';
-import useApiList from '../../hooks/useApiList';
+import useApi from '../../hooks/useApi';
+import useQueryParams from '../../hooks/useQueryParams';
 
 const TABS = [
   { value: 'buildings', label: 'Buildings' },
@@ -27,7 +27,7 @@ const nameForm = (row) => ({ name: row?.name ?? '' });
 const trimmedName = (values) => ({ name: values.name.trim() });
 
 function BuildingsTab() {
-  const list = useApiList(listBuildings, 'all');
+  const list = useApi(listBuildings, 'all');
   return (
     <FacilitySection
       noun="building"
@@ -48,7 +48,7 @@ function BuildingsTab() {
 }
 
 function FloorsTab({ buildingId }) {
-  const list = useApiList(listFloors, buildingId || null);
+  const list = useApi(listFloors, buildingId || null);
   if (!buildingId) return <Typography color="text.secondary">Choose a building to see its floors.</Typography>;
   return (
     <FacilitySection
@@ -72,7 +72,7 @@ function FloorsTab({ buildingId }) {
 FloorsTab.propTypes = { buildingId: PropTypes.string.isRequired };
 
 function SeatsTab({ floorId }) {
-  const list = useApiList(listSeats, floorId || null);
+  const list = useApi(listSeats, floorId || null);
   if (!floorId) return <Typography color="text.secondary">Choose a building and floor to see its seats.</Typography>;
   return (
     <FacilitySection
@@ -98,8 +98,8 @@ function SeatsTab({ floorId }) {
 SeatsTab.propTypes = { floorId: PropTypes.string.isRequired };
 
 function CategoriesTab() {
-  const list = useApiList(listCategories, 'all');
-  const teams = useApiList(listTeams, 'all');
+  const list = useApi(listCategories, 'all');
+  const teams = useApi(listTeams, 'all');
   // The add/edit form needs the teams too, so show the teams' loading or error state if that is what's missing.
   const shown = teams.status === 'ready' ? list : { ...teams, retry: () => { teams.retry(); list.retry(); } };
   return (
@@ -134,16 +134,10 @@ function CategoriesTab() {
  * The tab and the chosen building and floor live in the URL, so a reload or a shared link keeps them.
  */
 export default function FacilitiesAdminPage() {
-  const [params, setParams] = useSearchParams();
+  const [params, update] = useQueryParams();
   const tab = TABS.some((t) => t.value === params.get('tab')) ? params.get('tab') : 'buildings';
   const buildingId = params.get('building') || '';
   const floorId = params.get('floor') || '';
-
-  const update = (changes) => {
-    const next = new URLSearchParams(params);
-    Object.entries(changes).forEach(([key, value]) => (value ? next.set(key, value) : next.delete(key)));
-    setParams(next, { replace: true });
-  };
 
   return (
     <Stack spacing={2}>

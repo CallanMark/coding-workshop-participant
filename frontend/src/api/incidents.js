@@ -61,22 +61,12 @@ export function locationQuery({ category_id, building_id, floor_id }) {
 }
 
 /**
- * Active incidents with the same category, building and floor as one being reported (summaries only).
+ * Active incidents with the same category, building and floor as one being reported: title and place only.
  * @param {{category_id: number|string, building_id: number|string, floor_id?: number|string}} location
  * @returns {Promise<Array<object>>}
  */
 export function findDuplicates(location) {
   return apiRequest(`/incidents/duplicates?${locationQuery(location)}`);
-}
-
-/**
- * The limited summary of a possible duplicate; 404 unless it still matches that category and place.
- * @param {number|string} id - Incident id.
- * @param {{category_id: number|string, building_id: number|string, floor_id?: number|string}} location
- * @returns {Promise<object>}
- */
-export function getIncidentSummary(id, location) {
-  return apiRequest(`/incidents/${id}/summary?${locationQuery(location)}`);
 }
 
 /**
