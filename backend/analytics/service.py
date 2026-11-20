@@ -12,6 +12,7 @@ Access:
 
 import repository
 from common import lookups
+from common.auth import manages
 from common.domain import ACTIVE_STATUSES, PRIORITIES
 from common.errors import BadRequest, Forbidden, NotFound
 from common.http import Request
@@ -35,13 +36,12 @@ def team_dashboard(req: Request) -> dict:
 
 def engineer_dashboard(req: Request) -> dict:
     """One engineer's work and speed; their feedback too when their manager or an admin is looking."""
-    engineer = lookups.get_user(req.params["id"])
-    if engineer is None or engineer["role"] != "engineer" or not engineer["is_active"]:
+    engineer = lookups.get_engineer(req.params["id"], active_only=True)
+    if engineer is None:
         raise NotFound("Engineer not found")
     user = req.user
     own = user["id"] == engineer["id"]
-    manages = user["role"] == "manager" and user["team_id"] == engineer["team_id"]
-    if not (own or manages or user["role"] == "admin"):
+    if not (own or manages(user, engineer["team_id"]) or user["role"] == "admin"):
         raise Forbidden("You can only see your own dashboard, or those of engineers on the team you manage")
     days = _days(req)
     dashboard = {
@@ -50,8 +50,8 @@ def engineer_dashboard(req: Request) -> dict:
         **_summary({"team_id": None, "assignee_id": engineer["id"]}, days),
     }
     if not own:  # never send an engineer their own ratings
-        summary = repository.feedback_summary(engineer["id"])
-        dashboard["feedback"] = {**summary, "recent": repository.recent_feedback(engineer["id"])}
+        recent = lookups.engineer_feedback(engineer["id"], limit=repository.RECENT)
+        dashboard["feedback"] = {**lookups.feedback_summary(engineer["id"]), "recent": recent}
     return dashboard
 
 

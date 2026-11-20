@@ -3,9 +3,9 @@ Analytics repository: read-only SQL. No rules, no permissions, no HTTP.
 
 Dashboards are scoped by a `scope` dict: {"team_id": int | None, "assignee_id": int | None}.
 A None side matches everything, so the same queries serve a team and a single engineer.
-Every value is a query parameter; statuses come from common.domain. The only SQL composed at runtime is
-the location ranking, from the fixed LEVELS whitelist via psycopg's sql module.
-Users and teams are looked up with common.lookups.
+Every value is a query parameter; statuses come from common.domain. SQL is only ever composed with psycopg's
+sql module: the shared SCOPE filter, and the location ranking from the fixed LEVELS whitelist.
+Users, teams and engineer feedback are looked up with common.lookups.
 """
 
 from psycopg import sql
@@ -15,6 +15,16 @@ from common.domain import ACTIVE_STATUSES
 
 RECENT = 5  # oldest open incidents and latest feedback shown on a dashboard
 TOP = 10  # rows in each ranking
+
+
+# Limits a query to the dashboard's scope: one team, one engineer, or (both None) everything.
+SCOPE = sql.SQL("""(%(team_id)s::int IS NULL OR i.team_id = %(team_id)s)
+          AND (%(assignee_id)s::int IS NULL OR i.assignee_id = %(assignee_id)s)""")
+
+
+def _scoped(query: str) -> sql.Composed:
+    """The query with {scope} filled in by SCOPE (composed by psycopg, never by string formatting)."""
+    return sql.SQL(query).format(scope=SCOPE)
 
 
 def _params(scope: dict, **extra) -> dict:
@@ -28,11 +38,10 @@ def open_counts(scope: dict) -> list[dict]:
         SELECT i.status, i.priority, i.is_escalated, count(*) AS incidents
         FROM incidents i
         WHERE i.status = ANY(%(active)s)
-          AND (%(team_id)s::int IS NULL OR i.team_id = %(team_id)s)
-          AND (%(assignee_id)s::int IS NULL OR i.assignee_id = %(assignee_id)s)
+          AND {scope}
         GROUP BY i.status, i.priority, i.is_escalated
     """
-    return get_conn().execute(query, _params(scope)).fetchall()
+    return get_conn().execute(_scoped(query), _params(scope)).fetchall()
 
 
 def oldest_open(scope: dict) -> list[dict]:
@@ -42,12 +51,11 @@ def oldest_open(scope: dict) -> list[dict]:
         FROM incidents i
         LEFT JOIN users u ON u.id = i.assignee_id
         WHERE i.status = ANY(%(active)s)
-          AND (%(team_id)s::int IS NULL OR i.team_id = %(team_id)s)
-          AND (%(assignee_id)s::int IS NULL OR i.assignee_id = %(assignee_id)s)
+          AND {scope}
         ORDER BY i.created_at, i.id
         LIMIT %(limit)s
     """
-    return get_conn().execute(query, _params(scope, limit=RECENT)).fetchall()
+    return get_conn().execute(_scoped(query), _params(scope, limit=RECENT)).fetchall()
 
 
 def top_categories(scope: dict, days: int) -> list[dict]:
@@ -57,13 +65,12 @@ def top_categories(scope: dict, days: int) -> list[dict]:
         FROM incidents i
         JOIN categories c ON c.id = i.category_id
         WHERE i.created_at >= now() - make_interval(days => %(days)s)
-          AND (%(team_id)s::int IS NULL OR i.team_id = %(team_id)s)
-          AND (%(assignee_id)s::int IS NULL OR i.assignee_id = %(assignee_id)s)
+          AND {scope}
         GROUP BY c.id, c.name, c.type
         ORDER BY incidents DESC, c.name
         LIMIT %(limit)s
     """
-    return get_conn().execute(query, _params(scope, days=days, limit=TOP)).fetchall()
+    return get_conn().execute(_scoped(query), _params(scope, days=days, limit=TOP)).fetchall()
 
 
 def speed(scope: dict, days: int) -> dict:
@@ -84,35 +91,9 @@ def speed(scope: dict, days: int) -> dict:
             FILTER (WHERE i.resolved_at >= w.since) AS resolve
         FROM incidents i
         CROSS JOIN (SELECT now() - make_interval(days => %(days)s) AS since) w
-        WHERE (%(team_id)s::int IS NULL OR i.team_id = %(team_id)s)
-          AND (%(assignee_id)s::int IS NULL OR i.assignee_id = %(assignee_id)s)
+        WHERE {scope}
     """
-    return get_conn().execute(query, _params(scope, days=days)).fetchone()
-
-
-def feedback_summary(engineer_id: int) -> dict:
-    """An engineer's average rating (one decimal) and how many ratings, all time."""
-    query = """
-        SELECT round(avg(rating), 1)::float AS average, count(*) AS ratings
-        FROM incident_feedback
-        WHERE engineer_id = %s
-    """
-    return get_conn().execute(query, (engineer_id,)).fetchone()
-
-
-def recent_feedback(engineer_id: int) -> list[dict]:
-    """An engineer's latest feedback, newest first, with the incident and who gave it."""
-    query = """
-        SELECT fb.incident_id, i.title AS incident_title, fb.rating, fb.comment, r.name AS reporter_name,
-               fb.updated_at
-        FROM incident_feedback fb
-        JOIN incidents i ON i.id = fb.incident_id
-        JOIN users r     ON r.id = fb.reporter_id
-        WHERE fb.engineer_id = %s
-        ORDER BY fb.updated_at DESC, fb.id DESC
-        LIMIT %s
-    """
-    return get_conn().execute(query, (engineer_id, RECENT)).fetchall()
+    return get_conn().execute(_scoped(query), _params(scope, days=days)).fetchone()
 
 
 # --- location hotspots -----------------------------------------------------------------

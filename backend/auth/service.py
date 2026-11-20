@@ -12,9 +12,9 @@ import re
 from psycopg import errors as pg_errors
 
 import repository
-from common import lookups
+from common import lookups, validate
 from common.auth import DUMMY_HASH, hash_password, issue_token, verify_password
-from common.errors import BadRequest, Conflict, Forbidden, NotFound, Unauthorized
+from common.errors import BadRequest, Conflict, Forbidden, NotFound, Unauthorized, counted
 from common.http import Request
 
 EMAIL_PATTERN = re.compile(r"^[a-z0-9._%+-]+@acme\.inc$")
@@ -30,7 +30,7 @@ def register(req: Request) -> dict:
     if details:
         raise BadRequest(details=details)
     user_id = _create_account(name, email, password, role="employee", team_id=None, created_by=None)
-    return _session(repository.get_user(user_id))
+    return _session(lookups.get_user(user_id))
 
 
 def login(req: Request) -> dict:
@@ -39,8 +39,8 @@ def login(req: Request) -> dict:
     Every failed sign-in (blank, unknown email, wrong password) is the same 401, so the
     response never says which part was wrong. The login form checks for blank fields itself.
     """
-    email = _text(req.body.get("email")).strip().lower()
-    password = _text(req.body.get("password"))
+    email = validate.text(req.body.get("email")).lower()
+    password = validate.text(req.body.get("password"), strip=False)
 
     creds = repository.get_credentials(email) if email else None
     # Always run one hash check so blank or unknown emails take as long as wrong passwords.
@@ -49,12 +49,12 @@ def login(req: Request) -> dict:
         raise Unauthorized(LOGIN_FAILED)
     if not creds["is_active"]:
         raise Forbidden("This account has been deactivated. Contact a facility admin.")
-    return _session(repository.get_user(creds["id"]))
+    return _session(lookups.get_user(creds["id"]))
 
 
 def me(req: Request) -> dict:
     """The signed-in user's current profile (re-read from the database, so deactivation applies)."""
-    user = repository.get_user(req.user["id"])
+    user = lookups.get_user(req.user["id"])
     if user is None or not user["is_active"]:
         raise Unauthorized("Your account is no longer active. Please sign in again.")
     return user
@@ -63,7 +63,7 @@ def me(req: Request) -> dict:
 def list_engineers(req: Request) -> list[dict]:
     """Every engineer, deactivated ones too, with team, availability and open workload. ?team_id= for one team."""
     raw = (req.query.get("team_id") or "").strip()
-    team_id = _positive_int(raw) if raw else None
+    team_id = validate.query_id(raw)
     if raw and team_id is None:
         raise BadRequest(details={"team_id": "team_id must be a positive integer"})
     return lookups.list_engineers(team_id, include_inactive=True)
@@ -77,7 +77,7 @@ def add_engineer(req: Request) -> dict:
         raise BadRequest(details=details)
     _require_team(team_id)
     user_id = _create_account(name, email, password, role="engineer", team_id=team_id, created_by=req.user["id"])
-    return repository.get_user(user_id)
+    return lookups.get_user(user_id)
 
 
 def update_engineer(req: Request) -> dict:
@@ -85,8 +85,8 @@ def update_engineer(req: Request) -> dict:
     Change an engineer's name, team, availability (is_available) or whether they can sign in (is_active).
     Someone still holding open incidents can't be deactivated or moved to another team.
     """
-    engineer = repository.get_user(req.params["id"])
-    if engineer is None or engineer["role"] != "engineer":
+    engineer = lookups.get_engineer(req.params["id"])
+    if engineer is None:
         raise NotFound(ENGINEER_NOT_FOUND)
     fields, details = _engineer_changes(req.body)
     if details:
@@ -101,21 +101,20 @@ def update_engineer(req: Request) -> dict:
     if deactivating or moving:
         open_work = lookups.open_incidents(engineer["id"])
         if open_work:
-            plural = "incident" if open_work == 1 else "incidents"
-            raise Conflict(f"Reassign their {open_work} open {plural} first")
+            raise Conflict(f"Reassign their {counted(open_work, 'open incident')} first")
 
     repository.update_engineer(engineer["id"], fields)
-    return repository.get_user(engineer["id"])
+    return lookups.get_user(engineer["id"])
 
 
 def _profile(body: dict) -> tuple[str, str, str, dict]:
     """Name, email and password from a request body, normalised, with field errors for any that are invalid."""
-    name = _text(body.get("name")).strip()
-    email = _text(body.get("email")).strip().lower()
-    password = _text(body.get("password"))
+    name = validate.text(body.get("name"))
+    email = validate.text(body.get("email")).lower()
+    password = validate.text(body.get("password"), strip=False)
     details = {}
-    if _name_error(name):
-        details["name"] = _name_error(name)
+    if error := validate.length_error(name, "Name", MAX_NAME):
+        details["name"] = error
     if not EMAIL_PATTERN.match(email):
         details["email"] = "Use an @acme.inc email address"
     if not MIN_PASSWORD <= len(password) <= MAX_PASSWORD:
@@ -144,9 +143,9 @@ def _engineer_changes(body: dict) -> tuple[dict, dict]:
     """The columns an engineer update sets, and field errors. Only fields present in the body change."""
     fields, details = {}, {}
     if "name" in body:
-        name = _text(body["name"]).strip()
-        if _name_error(name):
-            details["name"] = _name_error(name)
+        name = validate.text(body["name"])
+        if error := validate.length_error(name, "Name", MAX_NAME):
+            details["name"] = error
         else:
             fields["name"] = name
     for flag in ("is_available", "is_active"):
@@ -162,18 +161,9 @@ def _engineer_changes(body: dict) -> tuple[dict, dict]:
     return fields, details
 
 
-def _name_error(name: str) -> str | None:
-    """Why a (trimmed) name is invalid, or None."""
-    if not name:
-        return "Name is required"
-    if len(name) > MAX_NAME:
-        return f"Name must be at most {MAX_NAME} characters"
-    return None
-
-
 def _team_id(value, details: dict) -> int | None:
     """A team id from the body as a positive int; adds a field error and returns None otherwise."""
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+    if validate.is_id(value):
         return value
     details["team_id"] = "Choose a team"
     return None
@@ -183,16 +173,6 @@ def _require_team(team_id: int) -> None:
     """400 when the team doesn't exist."""
     if lookups.get_team(team_id) is None:
         raise BadRequest(details={"team_id": "Team does not exist"})
-
-
-def _positive_int(raw: str) -> int | None:
-    """A query value as a positive int, or None."""
-    return int(raw) if raw.isdigit() and int(raw) > 0 else None
-
-
-def _text(value) -> str:
-    """A JSON field as a string; anything else (number, list, null, missing) counts as blank."""
-    return value if isinstance(value, str) else ""
 
 
 def _session(user: dict) -> dict:

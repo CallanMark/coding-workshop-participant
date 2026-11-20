@@ -8,7 +8,8 @@ from datetime import UTC, datetime
 from psycopg import errors as pg_errors
 
 import repository
-from common import lookups
+from common import lookups, validate
+from common.auth import manages
 from common.db import transaction
 from common.domain import ACTIVE_STATUSES, PRIORITIES, STATUSES
 from common.errors import BadRequest, Conflict, Forbidden, NotFound
@@ -206,7 +207,7 @@ def assign_incident(req: Request) -> dict:
     """
     incident_id = req.params["id"]
     assignee_id = req.body.get("assignee_id")
-    if assignee_id is not None and not _is_id(assignee_id):
+    if assignee_id is not None and not validate.is_id(assignee_id):
         raise BadRequest(details={"assignee_id": "assignee_id must be an engineer's id, or null to unassign"})
 
     with transaction():
@@ -244,14 +245,14 @@ def escalate_incident(req: Request) -> dict:
     """
     incident_id = req.params["id"]
     escalate = req.body.get("escalate")
-    reason = _text(req.body.get("reason"))
+    reason = validate.text(req.body.get("reason"))
     details = {}
     if not isinstance(escalate, bool):
         details["escalate"] = "escalate must be true or false"
     if escalate is True and not reason:
         details["reason"] = "Say why this needs escalating"
-    elif len(reason) > MAX_COMMENT:
-        details["reason"] = f"Reason must be at most {MAX_COMMENT} characters"
+    elif error := validate.length_error(reason, "Reason", MAX_COMMENT, required=False):
+        details["reason"] = error
     if details:
         raise BadRequest(details=details)
 
@@ -367,12 +368,12 @@ def save_feedback(req: Request) -> dict:
     """
     incident_id = req.params["id"]
     rating = req.body.get("rating")
-    comment = _text(req.body.get("comment")) or None
+    comment = validate.text(req.body.get("comment")) or None
     details = {}
     if not (isinstance(rating, int) and not isinstance(rating, bool) and 1 <= rating <= 5):
         details["rating"] = "Rating must be a whole number from 1 to 5"
-    if comment and len(comment) > MAX_COMMENT:
-        details["comment"] = f"Comment must be at most {MAX_COMMENT} characters"
+    if comment and (error := validate.length_error(comment, "Comment", MAX_COMMENT)):
+        details["comment"] = error
     if details:
         raise BadRequest(details=details)
 
@@ -403,8 +404,7 @@ def get_feedback(req: Request) -> dict | None:
     feedback = repository.get_feedback(req.params["id"])
     # Before any feedback exists the engineer's manager is the manager of the incident's team.
     engineer_team = feedback["engineer_team_id"] if feedback else incident["team_id"]
-    is_their_manager = req.user["role"] == "manager" and req.user["team_id"] == engineer_team
-    if not (relations & {"reporter", "admin"} or is_their_manager):
+    if not (relations & {"reporter", "admin"} or manages(req.user, engineer_team)):
         raise Forbidden("Only the reporter, the engineer's manager or an admin can see feedback")
     return feedback
 
@@ -415,9 +415,9 @@ def list_engineers(req: Request) -> list[dict]:
     Managers see their own team (another ?team_id= is 404); admins see everyone, or one team with ?team_id=.
     """
     raw = (req.query.get("team_id") or "").strip()
-    if raw and not (raw.isdigit() and int(raw) > 0):
+    team_id = validate.query_id(raw)
+    if raw and team_id is None:
         raise BadRequest(details={"team_id": "team_id must be a positive integer"})
-    team_id = int(raw) if raw else None
     if req.user["role"] == "manager":
         if team_id not in (None, req.user["team_id"]):
             raise NotFound("Team not found")
@@ -430,18 +430,15 @@ def engineer_feedback(req: Request) -> dict:
     All feedback on one engineer's work with their average rating: for their team's manager or an admin
     (route allows only those roles). An engineer outside the manager's team is 404.
     """
-    engineer = lookups.get_user(req.params["id"])
-    if engineer is None or engineer["role"] != "engineer":
+    engineer = lookups.get_engineer(req.params["id"])
+    if engineer is None or (req.user["role"] == "manager" and not manages(req.user, engineer["team_id"])):
         raise NotFound("Engineer not found")
-    if req.user["role"] == "manager" and req.user["team_id"] != engineer["team_id"]:
-        raise NotFound("Engineer not found")
-    feedback = repository.list_engineer_feedback(engineer["id"])
-    ratings = [item["rating"] for item in feedback]
+    summary = lookups.feedback_summary(engineer["id"])
     return {
         "engineer": {key: engineer[key] for key in ("id", "name", "team_id", "team_name")},
-        "count": len(ratings),
-        "average_rating": round(sum(ratings) / len(ratings), 1) if ratings else None,
-        "feedback": feedback,
+        "count": summary["ratings"],
+        "average_rating": summary["average"],
+        "feedback": lookups.engineer_feedback(engineer["id"]),
     }
 
 
@@ -465,16 +462,6 @@ def _relations(incident: dict, user: dict) -> set[str]:
     return relations
 
 
-def _text(value) -> str:
-    """A trimmed JSON string field; anything else (number, list, null, missing) counts as blank."""
-    return value.strip() if isinstance(value, str) else ""
-
-
-def _is_id(value) -> bool:
-    """A positive integer id. (bool is excluded: in Python True is an int.)"""
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
 def _incident_fields(data: dict, partial: bool) -> dict:
     """
     Validated incident fields from a request body (400 naming each bad field).
@@ -488,13 +475,11 @@ def _incident_fields(data: dict, partial: bool) -> dict:
         return not partial or name in data
 
     if wanted("title"):
-        fields["title"] = _text(data.get("title"))
-        if not fields["title"]:
-            details["title"] = "Title is required"
-        elif len(fields["title"]) > MAX_TITLE:
-            details["title"] = f"Title must be at most {MAX_TITLE} characters"
+        fields["title"] = validate.text(data.get("title"))
+        if error := validate.length_error(fields["title"], "Title", MAX_TITLE):
+            details["title"] = error
     if wanted("description"):
-        fields["description"] = _text(data.get("description")) or None
+        fields["description"] = validate.text(data.get("description")) or None
     if wanted("priority"):
         fields["priority"] = data.get("priority") or (None if partial else "medium")
         if fields["priority"] not in PRIORITIES:
@@ -502,13 +487,13 @@ def _incident_fields(data: dict, partial: bool) -> dict:
     for name in ("category_id", "building_id"):
         if wanted(name):
             fields[name] = data.get(name)
-            if not _is_id(fields[name]):
+            if not validate.is_id(fields[name]):
                 details[name] = f"{name} is required and must be an integer"
     cleared = {"floor_id": "building_id" in data, "seat_id": "building_id" in data or "floor_id" in data}
     for name in ("floor_id", "seat_id"):
         if wanted(name) or cleared[name]:
             fields[name] = data.get(name)
-            if fields[name] is not None and not _is_id(fields[name]):
+            if fields[name] is not None and not validate.is_id(fields[name]):
                 details[name] = f"{name} must be an integer"
     if details:
         raise BadRequest(details=details)
@@ -530,8 +515,8 @@ def _list_filters(query: dict) -> tuple[dict, dict]:
             continue
         if name == "assignee_id" and value[name] == "none":
             filters[name] = None  # unassigned
-        elif value[name].isdigit() and int(value[name]) > 0:
-            filters[name] = int(value[name])
+        elif validate.query_id(value[name]):
+            filters[name] = validate.query_id(value[name])
         else:
             details[name] = f"{name} must be a positive integer" + (' or "none"' if name == "assignee_id" else "")
     if value["escalated"] and value["escalated"] not in ("true", "false"):
@@ -552,8 +537,8 @@ def _duplicate_location(query: dict) -> dict:
         value = (query.get(name) or "").strip()
         if not value and name == "floor_id":
             location[name] = None
-        elif value.isdigit() and int(value) > 0:
-            location[name] = int(value)
+        elif validate.query_id(value):
+            location[name] = validate.query_id(value)
         else:
             rule = "must be" if name == "floor_id" else "is required and must be"
             details[name] = f"{name} {rule} a positive integer"
@@ -564,7 +549,7 @@ def _duplicate_location(query: dict) -> dict:
 
 def _note_body(data: dict) -> str:
     """A note's text from the request body (400 if blank or too long)."""
-    body = _text(data.get("body"))
+    body = validate.text(data.get("body"))
     if not body:
         raise BadRequest(details={"body": "Write something in the note"})
     if len(body) > MAX_NOTE:

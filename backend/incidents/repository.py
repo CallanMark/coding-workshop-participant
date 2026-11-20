@@ -273,18 +273,3 @@ def save_feedback(incident_id: int, reporter_id: int, engineer_id: int, rating: 
         """,
         (incident_id, reporter_id, engineer_id, rating, comment),
     )
-
-
-def list_engineer_feedback(engineer_id: int) -> list[dict]:
-    """All feedback on an engineer's work, with the incident title, newest first."""
-    query = """
-        SELECT fb.incident_id, i.title AS incident_title, fb.rating, fb.comment,
-               r.name AS reporter_name, fb.created_at, fb.updated_at
-        FROM incident_feedback fb
-        JOIN incidents i ON i.id = fb.incident_id
-        JOIN users r     ON r.id = fb.reporter_id
-        WHERE fb.engineer_id = %s
-        ORDER BY fb.created_at DESC, fb.id DESC
-    """
-    return get_conn().execute(query, (engineer_id,)).fetchall()
-
