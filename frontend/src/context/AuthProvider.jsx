@@ -2,7 +2,7 @@ import {
   useCallback, useEffect, useMemo, useState,
 } from 'react';
 import PropTypes from 'prop-types';
-import { fetchMe, login as apiLogin } from '../api/auth';
+import { fetchMe, login as apiLogin, register as apiRegister } from '../api/auth';
 import { setSessionExpiredHandler } from '../api/client';
 import {
   clearSession, getToken, loadSession, saveSession,
@@ -26,13 +26,20 @@ export default function AuthProvider({ children }) {
     setNotice(message);
   }, []);
 
-  const login = useCallback(async (email, password) => {
-    const next = await apiLogin(email, password);
+  // Keep a session the server just issued (sign-in or registration) and return its user.
+  const start = useCallback((next) => {
     saveSession(next);
     setSession(next);
     setNotice('');
     return next.user;
   }, []);
+
+  const login = useCallback(
+    async (email, password) => start(await apiLogin(email, password)),
+    [start],
+  );
+
+  const register = useCallback(async (account) => start(await apiRegister(account)), [start]);
 
   // Any signed-in request that gets a 401 ends the session.
   useEffect(() => {
@@ -60,8 +67,9 @@ export default function AuthProvider({ children }) {
     user: session?.user ?? null,
     notice,
     login,
+    register,
     logout,
-  }), [session, notice, login, logout]);
+  }), [session, notice, login, register, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

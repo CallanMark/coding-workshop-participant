@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
 import { AREA_ROLES } from './context/auth';
 import LoginPage from './features/auth/LoginPage';
+import RegisterPage from './features/auth/RegisterPage';
 import EngineersAdminPage from './features/engineers/EngineersAdminPage';
 import FacilitiesAdminPage from './features/facilities/FacilitiesAdminPage';
 import IncidentCreatePage from './features/incidents/IncidentCreatePage';
@@ -19,7 +20,8 @@ const EngineerDashboardPage = lazy(() => import('./features/dashboard/EngineerDa
 const loading = <LinearProgress aria-label="Loading page" />;
 
 /**
- * App routes. / and /login are the sign-in page; everything else needs a signed-in user,
+ * App routes. / and /login are the sign-in page and /register lets employees sign up; everything else needs
+ * a signed-in user,
  * /dashboard needs staff (engineer, manager or admin) and /admin/* needs an admin.
  */
 export default function App() {
@@ -27,6 +29,7 @@ export default function App() {
     <Routes>
       <Route index element={<LoginPage />} />
       <Route path="login" element={<LoginPage />} />
+      <Route path="register" element={<RegisterPage />} />
       <Route element={<RequireAuth />}>
         <Route element={<Layout />}>
           <Route path="incidents" element={<IncidentListPage />} />

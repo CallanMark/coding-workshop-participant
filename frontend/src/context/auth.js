@@ -11,6 +11,7 @@ export const AuthContext = createContext(null);
  *   user: {id: number, name: string, email: string, role: string, team_id: number|null} | null,
  *   notice: string,
  *   login: function(string, string): Promise<object>,
+ *   register: function({name: string, email: string, password: string}): Promise<object>,
  *   logout: function(string=): void,
  * }}
  */
